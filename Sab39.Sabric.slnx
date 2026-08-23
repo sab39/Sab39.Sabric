@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+  </Folder>
+  <Folder Name="/Sab39.Core/">
+    <Project Path="../Sab39.Core/Sab39.Core.Analyzers/Sab39.Core.Analyzers.csproj" />
+    <Project Path="../Sab39.Core/Sab39.Core.CodeGen/Sab39.Core.CodeGen.csproj" />
+    <Project Path="../Sab39.Core/Sab39.Core/Sab39.Core.csproj" />
+  </Folder>
+  <Project Path="Sab39.Sabric.Core/Sab39.Sabric.Core.csproj" />
+  <Project Path="Sab39.Sabric.Engine/Sab39.Sabric.Engine.csproj" />
+  <Project Path="Sab39.Sabric.Engine.Aether/Sab39.Sabric.Engine.Aether.csproj" />
+  <Project Path="Sab39.Sabric.UI/Sab39.Sabric.UI.csproj" />
+  <Project Path="Sab39.Sabric.UI.BlazorSVG/Sab39.Sabric.UI.BlazorSVG.csproj" />
+</Solution>
