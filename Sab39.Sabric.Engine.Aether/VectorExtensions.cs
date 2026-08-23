@@ -1,51 +1,27 @@
-using nkast.Aether.Physics2D.Common;
+using System.Numerics;
+
+using AetherVector2 = nkast.Aether.Physics2D.Common.Vector2;
 
 namespace Sab39.Sabric.Engine.Aether;
 
+/// <summary>
+/// Conversions between the system's <see cref="Vector2"/> and Aether's, which are the same two
+/// floats but unrelated types - Aether declares no conversions to System.Numerics at all.
+/// </summary>
+/// <remarks>
+/// These would be implicit conversion operators if C# had extension operators. Until it does, a
+/// conversion operator has to be declared inside one of the two types it converts between, and
+/// both of these belong to somebody else.
+/// </remarks>
 public static class VectorExtensions
 {
-    extension(IEnumerable<Vector2> vectors)
-    {
-        public Vector2 Sum() => vectors.Aggregate(Vector2.Zero, (a, b) => a + b);
-    }
-
-    extension<T>(IEnumerable<T> values)
-    {
-        public Vector2 Sum(Func<T, Vector2> getVector2) => values.Aggregate(Vector2.Zero, (a, v) => a + getVector2(v));
-    }
-
-    extension(ref Vector2 vector)
-    {
-        public void Clamp(float limit = 1)
-        {
-            if (vector.LengthSquared() > limit * limit)
-            {
-                vector.Normalize();
-                vector *= limit;
-            }
-        }
-    }
-
     extension(Vector2 vector)
     {
-        public Vector2 Normalized()
-        {
-            vector.Normalize();
-            return vector;
-        }
-
-        public Vector2 Clamped(float limit = 1)
-        {
-            vector.Clamp(limit);
-            return vector;
-        }
+        public AetherVector2 AsAether() => new(vector.X, vector.Y);
     }
 
-    extension(Vector2)
+    extension(AetherVector2 vector)
     {
-        public static Vector2 North => new(0, -1);
-        public static Vector2 South => new(0, 1);
-        public static Vector2 East => new(1, 0);
-        public static Vector2 West => new(-1, 0);
+        public Vector2 AsSystem() => new(vector.X, vector.Y);
     }
 }

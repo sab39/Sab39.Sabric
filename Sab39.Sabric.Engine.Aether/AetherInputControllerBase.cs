@@ -1,5 +1,8 @@
-using nkast.Aether.Physics2D.Common;
+using System.Numerics;
+
 using nkast.Aether.Physics2D.Controllers;
+
+using Sab39.Sabric.Core;
 
 namespace Sab39.Sabric.Engine.Aether;
 
@@ -7,7 +10,7 @@ namespace Sab39.Sabric.Engine.Aether;
 /// Collects input sources and reduces them to a single direction. What that direction then does
 /// to the world is game-specific, and is left to the derived controller's Update.
 /// </summary>
-public abstract class InputControllerBase : Controller
+public abstract class AetherInputControllerBase : Controller
 {
     private readonly List<IPlayerInputSource> inputSources = [];
 
