@@ -1,5 +1,7 @@
 using System.Numerics;
 
+using Sab39.Core.Components;
+
 using AetherVector2 = nkast.Aether.Physics2D.Common.Vector2;
 
 namespace Sab39.Sabric.Engine.Aether;
@@ -13,15 +15,18 @@ namespace Sab39.Sabric.Engine.Aether;
 /// conversion operator has to be declared inside one of the two types it converts between, and
 /// both of these belong to somebody else.
 /// </remarks>
+[SyncConversion]
 public static class VectorExtensions
 {
     extension(Vector2 vector)
     {
+        [SyncConversion]
         public AetherVector2 AsAether() => new(vector.X, vector.Y);
     }
 
     extension(AetherVector2 vector)
     {
+        [SyncConversion]
         public Vector2 AsSystem() => new(vector.X, vector.Y);
     }
 }
