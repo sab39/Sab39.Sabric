@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Pinned to the Roslyn version shipped by both the SDK and VS 18, for the same reason
+    Sab39.Core.Analyzers is: a component built against a newer Roslyn than its host won't load.
+    Only the compiler layer is needed here - a generator has no code fixes, so no Workspaces.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
