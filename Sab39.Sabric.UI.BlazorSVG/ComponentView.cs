@@ -17,13 +17,19 @@ namespace Sab39.Sabric.UI.BlazorSVG;
 /// the component accepts the object.
 /// </remarks>
 public sealed class ComponentView<TComponent, TObject> : IGameObjectView<TObject>
-    where TComponent : GameObjectView<TObject>
+    where TComponent : GameObjectViewBase<TObject>
     where TObject : GameObjectBase
 {
     public RenderFragment Render(TObject obj) => builder =>
     {
         builder.OpenComponent<TComponent>(0);
-        builder.AddComponentParameter(1, nameof(GameObjectView<TObject>.GameObject), obj);
+
+        // SetKey applies to the frame that's currently open, so it has to come after
+        // OpenComponent. Before it, it would key whatever element the fragment was rendered
+        // inside - quietly wrong rather than an error.
+        builder.SetKey(obj.GameObjectId);
+
+        builder.AddComponentParameter(1, nameof(GameObjectViewBase<TObject>.GameObject), obj);
         builder.CloseComponent();
     };
 }

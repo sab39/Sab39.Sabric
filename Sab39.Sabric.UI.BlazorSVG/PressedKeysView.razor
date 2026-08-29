@@ -1,0 +1,18 @@
+@inherits SubscribingViewBase<PressedKeys>
+
+<div>Keys: @pressedKeysMsg</div>
+
+@code {
+    [Parameter]
+    [EditorRequired]
+    public PressedKeys PressedKeys { get; set; } = default!;
+
+    private string pressedKeysMsg => string.Join(",", PressedKeys.Keys);
+
+    protected override PressedKeys? Source => PressedKeys;
+
+    protected override void Subscribe(PressedKeys source) => source.Changed += HandleChanged;
+    protected override void Unsubscribe(PressedKeys source) => source.Changed -= HandleChanged;
+
+    private void HandleChanged(object? sender, EventArgs args) => Invalidate();
+}

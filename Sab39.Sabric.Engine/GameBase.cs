@@ -24,6 +24,16 @@ public abstract class GameBase
         OnInit();
     }
 
+    /// <summary>
+    /// Raised once per tick, after the tick has been fully applied.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not raised by an OnTicked method. The OnXyz convention means "the protected
+    /// virtual that raises event Xyz", and OnTick is a plain lifecycle hook with no event behind
+    /// it; leaving the raiser out keeps the two from being confused for each other.
+    /// </remarks>
+    public event EventHandler? Ticked;
+
     protected abstract void OnTick(long tickStamp);
     public void Tick(long tickStamp)
     {
@@ -38,6 +48,8 @@ public abstract class GameBase
 
         Ticks++;
         LastTickStamp = tickStamp;
+
+        Ticked?.Invoke(this, EventArgs.Empty);
     }
 }
 

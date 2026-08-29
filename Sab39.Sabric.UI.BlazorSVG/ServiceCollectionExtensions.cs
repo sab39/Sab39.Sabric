@@ -25,14 +25,14 @@ public static class ServiceCollectionExtensions
         /// <typeparamref name="TObject"/>.
         /// </summary>
         /// <remarks>
-        /// The <c>TComponent : GameObjectView&lt;TObject&gt;</c> constraint puts the type check
+        /// The <c>TComponent : GameObjectViewBase&lt;TObject&gt;</c> constraint puts the type check
         /// here, at the one call site that legitimately knows about both halves. Pairing an object
         /// with a view for something else is a compile error at this line, and nothing downstream
         /// ever has to test for it.
         /// </remarks>
         public IServiceCollection AddGameObjectView<TObject, TComponent>()
             where TObject : GameObjectBase
-            where TComponent : GameObjectView<TObject>
+            where TComponent : GameObjectViewBase<TObject>
             => services.AddSingleton<IGameObjectView<TObject>, ComponentView<TComponent, TObject>>();
     }
 }

@@ -1,0 +1,33 @@
+@inherits SubscribingViewBase<GameBase>
+
+@* Genuinely changes every tick, which is what makes it the one legitimate subscriber to Ticked. *@
+<div>Ticks: @Game.Ticks</div>
+<div>Runtime: @Game.TotalMillis ms (@Game.FirstTickStamp to @Game.LastTickStamp)</div>
+<div>Delta: @Game.Delta ms</div>
+<div>
+    FPS:
+    @if (Game.Delta > 0)
+    {
+        @(1000 / Game.Delta)
+    }
+</div>
+<div>
+    Average FPS:
+    @if (Game.TotalMillis > 0)
+    {
+        @(Game.Ticks * 1000 / Game.TotalMillis)
+    }
+</div>
+
+@code {
+    [Parameter]
+    [EditorRequired]
+    public GameBase Game { get; set; } = default!;
+
+    protected override GameBase? Source => Game;
+
+    protected override void Subscribe(GameBase source) => source.Ticked += HandleTicked;
+    protected override void Unsubscribe(GameBase source) => source.Ticked -= HandleTicked;
+
+    private void HandleTicked(object? sender, EventArgs args) => Invalidate();
+}
