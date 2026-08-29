@@ -22,7 +22,9 @@ namespace Sab39.Sabric.Engine.Aether;
 public abstract partial class AetherGameObjectBase(AetherGameBase game, Vector2 initialPosition = default, float initialRotation = 0, BodyType bodyType = BodyType.Dynamic)
     : GameObjectBase(game, initialPosition)
 {
-    public new AetherGameBase Game { get; } = game;
+    // Cast rather than a second backing field: the cast is provably safe from the constructor
+    // signature and costs nothing a JIT can't fold, where a field is paid per instance forever.
+    public override AetherGameBase Game => (AetherGameBase)base.Game;
     public World World => Game.World;
 
     public Body Body

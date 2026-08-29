@@ -22,7 +22,7 @@ public abstract class GameObjectBase(GameBase game, Vector2 initialPosition = de
 {
     public Guid GameObjectId { get; } = Guid.NewGuid();
 
-    public GameBase Game { get; } = game;
+    public virtual GameBase Game { get; } = game;
 
     public Vector2 Position { get; set => this.SetProperty(ref field, value); } = initialPosition;
     public Vector2 Velocity { get; set => this.SetProperty(ref field, value); }
