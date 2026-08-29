@@ -2,6 +2,8 @@ using System.Numerics;
 
 using nkast.Aether.Physics2D.Dynamics;
 
+using Sab39.Core.Components;
+
 namespace Sab39.Sabric.Engine.Aether;
 
 /// <summary>
@@ -12,7 +14,7 @@ namespace Sab39.Sabric.Engine.Aether;
 /// the fully-constructed object, and merely touching Body is enough to trigger it.
 /// </remarks>
 public abstract class AetherGameObjectBase(AetherGameBase game, Vector2 initialPosition = default, float initialRotation = 0, BodyType bodyType = BodyType.Dynamic)
-    : GameObjectBase(game)
+    : GameObjectBase(game, initialPosition)
 {
     public new AetherGameBase Game { get; } = game;
     public World World => Game.World;
@@ -26,21 +28,25 @@ public abstract class AetherGameObjectBase(AetherGameBase game, Vector2 initialP
         }
     } = game.World.CreateBody(initialPosition.AsAether(), initialRotation, bodyType);
 
-    public override Vector2 Position
-    {
-        get => Body.Position.AsSystem();
-        set => Body.Position = value.AsAether();
-    }
-    public override Vector2 Velocity
-    {
-        get => Body.LinearVelocity.AsSystem();
-        set => Body.LinearVelocity = value.AsAether();
-    }
-
-    public float Rotation { get => Body.Rotation; set => Body.Rotation = value; }
-    public float AngularVelocity { get => Body.AngularVelocity; set => Body.AngularVelocity = value; }
+    public float Rotation { get; set => this.SetProperty(ref field, value); } = initialRotation;
+    public float AngularVelocity { get; set => this.SetProperty(ref field, value); }
 
     protected override void Initialize() => InitializeBody();
 
     protected abstract void InitializeBody();
+
+    protected internal virtual void SyncToBody()
+    {
+        Body.Position = Position.AsAether();
+        Body.LinearVelocity = Velocity.AsAether();
+        Body.Rotation = Rotation;
+        Body.AngularVelocity = AngularVelocity;
+    }
+    protected internal virtual void SyncFromBody()
+    {
+        Position = Body.Position.AsSystem();
+        Velocity = Body.LinearVelocity.AsSystem();
+        Rotation = Body.Rotation;
+        AngularVelocity = Body.AngularVelocity;
+    }
 }

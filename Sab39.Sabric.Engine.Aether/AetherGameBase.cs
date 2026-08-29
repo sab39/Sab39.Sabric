@@ -10,22 +10,28 @@ namespace Sab39.Sabric.Engine.Aether;
 /// concepts - controllers especially, which Sabric has no abstraction for. See the open
 /// questions in Docs/WIP/sporbits-revival.md in the Sporbits repo.
 /// </remarks>
-public abstract class AetherGameBase : GameBase
+public abstract class AetherGameBase : GameBase<AetherGameObjectBase>
 {
     public World World { get; } = new()
     {
         Gravity = default,
     };
 
-    public override void Init()
+    protected override void OnInit() => World.Enabled = true;
+
+    protected virtual void SyncToWorld()
     {
-        base.Init();
-        World.Enabled = true;
+        foreach (var obj in GameObjects) obj.SyncToBody();
+    }
+    protected virtual void SyncFromWorld()
+    {
+        foreach (var obj in GameObjects) obj.SyncFromBody();
     }
 
-    public override void Tick(long tickStamp)
+    protected override void OnTick(long tickStamp)
     {
-        base.Tick(tickStamp);
+        SyncToWorld();
         World.Step(TimeSpan.FromMilliseconds(Delta));
+        SyncFromWorld();
     }
 }

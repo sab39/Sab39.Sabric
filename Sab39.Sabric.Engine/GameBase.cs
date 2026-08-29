@@ -15,28 +15,43 @@ public abstract class GameBase
     public long Delta { get; private set; }
     public long TotalMillis => LastTickStamp - FirstTickStamp;
 
-    private readonly List<GameObjectBase> gameObjects = [];
+    public abstract IReadOnlyList<GameObjectBase> GameObjects { get; }
 
-    public IReadOnlyList<GameObjectBase> GameObjects => this.gameObjects;
-
-    public virtual void Init() => Ticks = 0;
-
-    public virtual void AddGameObject(GameObjectBase obj)
+    protected virtual void OnInit() { }
+    public void Init()
     {
-        obj.EnsureInitialized();
-        this.gameObjects.Add(obj);
+        Ticks = 0;
+        OnInit();
     }
 
-    public virtual void Tick(long tickStamp)
+    protected abstract void OnTick(long tickStamp);
+    public void Tick(long tickStamp)
     {
         if (Ticks == 0)
         {
             FirstTickStamp = tickStamp;
             LastTickStamp = tickStamp;
         }
+        Delta = tickStamp - LastTickStamp;
+
+        OnTick(tickStamp);
 
         Ticks++;
-        Delta = tickStamp - LastTickStamp;
         LastTickStamp = tickStamp;
     }
+}
+
+public abstract class GameBase<TGameObject> : GameBase
+    where TGameObject : GameObjectBase
+{
+    private readonly List<TGameObject> gameObjects = [];
+    public sealed override IReadOnlyList<TGameObject> GameObjects => this.gameObjects;
+
+    protected void AddGameObject(TGameObject obj)
+    {
+        obj.EnsureInitialized();
+        this.gameObjects.Add(obj);
+        OnAddGameObject(obj);
+    }
+    protected virtual void OnAddGameObject(TGameObject obj) { }
 }
