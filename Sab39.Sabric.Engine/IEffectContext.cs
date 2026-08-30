@@ -25,6 +25,16 @@ public interface IEffectContext
     Vector2 GetPosition(GameObjectBase obj);
     Vector2 GetVelocity(GameObjectBase obj);
 
+    /// <remarks>
+    /// Read-only for now, where position and velocity have a push each. Rotation is a concept the
+    /// generic layer carries, so an effect that steers by it needs to be able to see it; nothing has
+    /// yet wanted the angular twin of <see cref="ApplyDeltaV"/>, so there isn't one.
+    /// </remarks>
+    float GetRotation(GameObjectBase obj);
+
+    /// <inheritdoc cref="GetRotation"/>
+    float GetAngularVelocity(GameObjectBase obj);
+
     /// <summary>
     /// Pushes <paramref name="obj"/> at <paramref name="acceleration"/> units per second squared,
     /// for the length of this tick.

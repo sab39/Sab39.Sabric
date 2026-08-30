@@ -5,14 +5,18 @@ using Sab39.Sabric.Core;
 namespace Sab39.Sabric.Engine;
 
 /// <summary>
-/// Collects input sources and reduces them to a single direction. What that direction then does to
-/// the space is game-specific, and is left to the derived effect's Update.
+/// Where the player is currently trying to go, collected from however many sources are reporting it.
 /// </summary>
 /// <remarks>
-/// The engine-agnostic twin of <c>AetherInputControllerBase</c>, which stays where it is for as long
-/// as anything is still built on Aether's own controllers.
+/// Held rather than inherited from. Input used to be a base class an effect derived from, which tied
+/// it to being exactly one effect and made that effect the only route anything had to the input; as
+/// a plain object, a space can hand the same input to several effects and a UI can wire its sources
+/// up without going through an effect at all.
+///
+/// What the input abstraction should eventually be is an open question - see Docs/architecture.md.
+/// Being out here rather than tangled into the effect hierarchy is what leaves room to answer it.
 /// </remarks>
-public abstract class InputEffectBase : GameEffectBase
+public sealed class PlayerInput
 {
     private readonly List<IPlayerInputSource> inputSources = [];
 

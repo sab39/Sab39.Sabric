@@ -9,9 +9,9 @@ This is a working doc for the controller-unification work and the Rectro / Sabby
 concept. It replaces the **Controllers** open question in `Docs/architecture.md`, and gets folded
 into that doc once it's implemented.
 
-**The shared layer and the Rectro half are built; the Aether half is not.** Everything below about
-`GameEffectBase`, `IEffectContext`, Rectro and SabbyBird describes code. The three kinds of effect,
-the Aether context, and everything under Open are still design.
+**All of it is built**, in both engines and both games. What is left is folding this doc back into
+`Docs/architecture.md`, which still describes controllers as unabstracted and rotation as a concept
+the generic layer doesn't carry.
 
 `Sabric.Engine` carries these concepts on the strength of two implementations to check them against
 rather than one. The recorded objection to a physics-agnostic layer is that it has "no second
@@ -83,9 +83,14 @@ properties are still those of the last `SyncFromWorld` while the body has alread
 for something that only pushes; wrong for anything that steers.
 
 ```
-IEffectContext          GetPosition / GetVelocity / ...; ApplyAcceleration / ApplyDeltaV
-  IAetherEffectContext  + ApplyForce / ApplyImpulse, and Aether's physics concepts
+IEffectContext          GetPosition / GetVelocity / GetRotation / GetAngularVelocity
+                        ApplyAcceleration / ApplyDeltaV
+  IAetherEffectContext  + ApplyForce / ApplyImpulse
 ```
+
+Rotation has reads and no push, where position and velocity have both. It is on the generic
+interface because rotation is a generic concept, and an effect that steers by it has to be able to
+see it; the angular twin of `ApplyDeltaV` is absent rather than rejected.
 
 Acceleration and delta-v are kinematics and belong to any engine; force and impulse presuppose mass
 and belong to the physics side. The Aether implementation multiplies by mass on the way through.
@@ -114,8 +119,15 @@ nothing yet depends on. It can be made contractual later if something wants it.
   hook, detach on the way out — and `GameEffectBase` has the same `Space` / `IsAttached` /
   `OnAttached` / `OnDetached` lifecycle a game object has. That hook is what an engine which has to
   install an effect somewhere has to work with.
-- **`InputEffectBase`** is the engine-agnostic twin of `AetherInputControllerBase`, which stays put
-  for as long as anything is still built on Aether's own controllers.
+- **Input is a `PlayerInput` an effect is handed, not a base class it derives from.** It collects
+  `IPlayerInputSource`s and reduces them to a clamped direction, and the **space** owns one: a UI
+  wires its sources to the space, and an effect is merely one of the things reading it.
+
+  Deriving tied input to being exactly one effect, and made that effect the only route anything had
+  to the input. Neither is a commitment worth making while the input abstraction itself is still an
+  open question — pulling input *out* of the effect hierarchy is what leaves room to answer it. Both
+  input base classes are gone with it, and the two games' input effects now have little enough in
+  common that they are independently written.
 
 ## Where effects sit in the tick
 
@@ -191,17 +203,19 @@ Not decisions — traps and mechanical consequences worth not rediscovering.
 - **An effect that adds or removes *effects* during the sweep has no answer.** Rectro walks
   `Effects` with a plain `foreach`, so doing it throws. Adding and removing game *objects* mid-sweep
   is fine, and SabbyBird's pipes depend on it.
-- **Setting `Mass` has an ordering trap with fixtures.** Aether recomputes a body's mass from its
-  fixtures in `ResetMassData()`, called on `CreateFixture` — Box2D behaviour inherited by the port,
-  worth confirming against 2.2.0 before relying on it. If so, `PlanetBase` must set mass *after*
-  `InitializeBody` creates the circle fixture, or it is silently clobbered.
 - **Rectro's resting contact sits exactly on the overlap test's boundary.** Resolving to adjacency
   means a zero gap, which is a natural way to get begin- and end-contact firing on alternate ticks
   forever. It won't bite in SabbyBird, where contact is death and nothing rests, but it will in the
   first Rectro game with a floor.
-- **`AetherSpace` keeps a raw `AddController(Controller)`** as a convenience over
-  `AddEffect(new AetherControllerEffect(controller))`. A one-liner or extension method; nothing about
-  the design turns on whether it exists.
+- **`AetherSpace.AddController(Controller)`** is kept, as a convenience over
+  `AddEffect(new AetherControllerEffect(controller))`. There is no `RemoveController` to match:
+  removal means holding the wrapper and calling `RemoveEffect`.
+- **The narrowed `Update` on `AetherEffectBase` is an overload, not an override**, since C# cannot
+  narrow a parameter in one. What stops the sealed wide one recursing into itself is overload
+  resolution picking the narrow one for an argument already typed as `IAetherEffectContext`.
+- **The space remembers what it put in the world per effect**, in a dictionary. Kind 1 maps to its
+  own wrapped controller and kinds 2 and 3 to their forwarder, which is what makes taking one out
+  again the same operation for all three.
 
 ## Open
 
@@ -209,13 +223,5 @@ Not decisions — traps and mechanical consequences worth not rediscovering.
   alongside events — a per-space thing updating every tick after the sweep, the mirror of an effect
   on the far side of the step. Under a definition of *effect* that is about being ongoing rather than
   about which side of the step it runs on, whether rule survives as a separate category is unsettled.
-- **How kind 3 receives the narrowed context.** C# cannot narrow a parameter in an override, so
-  `AetherEffectBase` cannot simply override an `Update(IEffectContext)` with
-  `Update(IAetherEffectContext)`. Unresolved; Claude offered a sealed-hook-plus-cast (the same shape
-  as `AetherObjectBase.Space => (AetherSpace)base.Space`) and a `GameEffectBase<TContext>` mirroring
-  `GameSpaceBase<TObject>`, and neither has been chosen.
-- **What installs an effect into an Aether world, and what removes it.** Kinds 2 and 3 are put there
-  by the space; kind 1 puts itself there. Whether that asymmetry is expressed as an attach hook on
-  the effect, a type test in the space, or something else is undecided, as is the removal half.
 - **A better name than `GameEffect`**, if one turns up. Nothing is wrong with it; it just hasn't been
   lived with yet.

@@ -12,8 +12,9 @@ namespace Sab39.Sabric.Engine.Aether;
 /// </summary>
 /// <remarks>
 /// The World is handed out directly, so anything above this layer is free to use Aether's own
-/// concepts - controllers especially, which Sabric has no abstraction for yet. See the open
-/// questions in Docs/architecture.md.
+/// concepts where it wants them - a controller Aether shipped goes in as an effect like anything
+/// else, and reaching through to a Body is still how a game asks for something this seam doesn't
+/// carry.
 ///
 /// There is no Aether-flavoured session to go with this. The space owns the physics, so a session
 /// never needs to know which physics implementation is underneath it.
@@ -44,21 +45,57 @@ public abstract class AetherSpace : GameSpaceBase<AetherObjectBase>
     }
 
     /// <summary>
-    /// Adds a controller to the world, to run inside every step.
+    /// Adds one of Aether's own controllers to the space, to run inside every step.
     /// </summary>
     /// <remarks>
-    /// Aether's own <see cref="Controller"/>, deliberately, and separate from
-    /// <see cref="GameSpaceBase{TObject}.Add"/> rather than folded into it: a controller is not a
-    /// game object, has no position and is never rendered, and conflating the two would buy a
-    /// shorter call site at the cost of a list that means two things.
-    ///
-    /// This is the whole of Sabric's controller story. It exists so that populating a space reads
-    /// the same way for both kinds of thing in it, not because the abstraction has been designed -
-    /// see the open questions in Docs/architecture.md.
+    /// A convenience over the wrapper, so that a game reaching for a controller Aether shipped
+    /// doesn't have to spell out that it is an effect. There is no RemoveController to match: taking
+    /// one out again means holding the wrapper and calling
+    /// <see cref="GameSpaceBase.RemoveEffect"/>, and inventing a lookup for a case nothing has
+    /// wanted would be worse than saying so.
     /// </remarks>
-    public void AddController(Controller controller) => World.Add(controller);
+    public void AddController(Controller controller) => AddEffect(new AetherControllerEffect(controller));
 
-    public void RemoveController(Controller controller) => World.Remove(controller);
+    /// <summary>
+    /// What went into the world on each effect's behalf.
+    /// </summary>
+    /// <remarks>
+    /// The two kinds put different things there - a wrapped controller is its own, everything else
+    /// gets a forwarder - and remembering which is what makes taking it out again the same operation
+    /// either way.
+    /// </remarks>
+    private readonly Dictionary<GameEffectBase, Controller> controllers = [];
+
+    /// <remarks>
+    /// A type test rather than a hook on the effect: an effect that has never heard of Aether has no
+    /// Aether-side base to hang a virtual on, so the space needs this branch whatever else it has,
+    /// at which point the virtual would buy nothing.
+    /// </remarks>
+    protected override void OnAddEffect(GameEffectBase effect)
+    {
+        var controller = effect is AetherControllerEffect wrapper
+            ? wrapper.Controller
+            : new EffectController(this, effect);
+
+        this.controllers.Add(effect, controller);
+        World.Add(controller);
+    }
+
+    protected override void OnRemoveEffect(GameEffectBase effect)
+    {
+        if (this.controllers.Remove(effect, out var controller)) World.Remove(controller);
+    }
+
+    /// <summary>
+    /// How long the advance currently being run is, in milliseconds.
+    /// </summary>
+    /// <remarks>
+    /// Stashed for the forwarders, which run inside <see cref="World.Step"/> and are handed only
+    /// Aether's own seconds.
+    /// </remarks>
+    internal long CurrentDelta { get; private set; }
+
+    internal AetherEffectContext EffectContext { get; } = new();
 
     /// <remarks>
     /// Guarded on IsAttached rather than trusting the list. Everything in it is attached by
@@ -82,6 +119,8 @@ public abstract class AetherSpace : GameSpaceBase<AetherObjectBase>
 
     protected override void OnAdvance(long delta)
     {
+        CurrentDelta = delta;
+
         SyncToWorld();
         World.Step(TimeSpan.FromMilliseconds(delta));
         SyncFromWorld();

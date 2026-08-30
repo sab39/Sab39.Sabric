@@ -25,6 +25,9 @@ internal sealed class RectroEffectContext : IEffectContext
     public Vector2 GetPosition(GameObjectBase obj) => obj.Position;
     public Vector2 GetVelocity(GameObjectBase obj) => obj.Velocity;
 
+    public float GetRotation(GameObjectBase obj) => obj.Rotation;
+    public float GetAngularVelocity(GameObjectBase obj) => obj.AngularVelocity;
+
     public void ApplyAcceleration(GameObjectBase obj, Vector2 acceleration)
         => obj.Velocity += acceleration * Seconds;
 

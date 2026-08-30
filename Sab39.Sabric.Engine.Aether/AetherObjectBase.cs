@@ -12,12 +12,14 @@ namespace Sab39.Sabric.Engine.Aether;
 /// about the object survives that except the state it holds itself, which is the point: the same
 /// object can be attached to a different space later, and a detached one is still worth reading.
 ///
-/// Position and Velocity are declared by GameObjectBase, which has no business knowing Aether
-/// exists, so they're mirrored from here by the type-level form of the attribute. Rotation and
-/// AngularVelocity are declared here and say so themselves.
+/// Position, Velocity, Rotation and AngularVelocity are all declared by GameObjectBase, which has no
+/// business knowing Aether exists, so they're mirrored from here by the type-level form of the
+/// attribute. Mass is declared here and says so itself.
 /// </remarks>
 [SyncProperty(nameof(Position), nameof(Body))]
 [SyncProperty(nameof(Velocity), nameof(Body), nameof(Body.LinearVelocity))]
+[SyncProperty(nameof(Rotation), nameof(Body))]
+[SyncProperty(nameof(AngularVelocity), nameof(Body))]
 public abstract partial class AetherObjectBase : GameObjectBase
 {
     // Cast rather than a second backing field: the cast is provably safe from the space that
@@ -45,13 +47,20 @@ public abstract partial class AetherObjectBase : GameObjectBase
     private InvalidOperationException NotAttached()
         => new($"{GetType().Name} is not attached to a space.");
 
-    // Written out rather than partial only because it needs an initializer, which the generated
-    // half has no way to know about.
+    /// <summary>
+    /// How much this object weighs.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than on <see cref="GameObjectBase"/>, and the same line
+    /// <see cref="IAetherEffectContext"/> is drawn on: acceleration and delta-v are meaningful in a
+    /// game with no physics engine, and mass is not.
+    ///
+    /// Independent of any shape's density and size, because computing it from those doesn't
+    /// generalize past a planet. Whatever knows how heavy the thing is sets it, and nothing changes
+    /// it after that unless something means to.
+    /// </remarks>
     [SyncWith(nameof(Body))]
-    public float Rotation { get; set => this.SetProperty(ref field, value); }
-
-    [SyncWith(nameof(Body))]
-    public partial float AngularVelocity { get; set; }
+    public partial float Mass { get; set; }
 
     /// <remarks>
     /// The Tag is how <see cref="AetherSpace"/> gets from a body back to the object that owns it,

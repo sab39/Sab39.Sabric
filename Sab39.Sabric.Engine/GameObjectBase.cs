@@ -40,6 +40,19 @@ public abstract class GameObjectBase : IPropertyChange, IChangeNotifier
     public Vector2 Velocity { get; set => this.SetProperty(ref field, value); }
 
     /// <summary>
+    /// Which way this object is facing, in radians.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than on the physics side, because the boundary between this layer and an engine's
+    /// is the existence of physics and rotation exists perfectly well without it - a top-down car
+    /// racing game rotates its cars and has no solver anywhere.
+    /// </remarks>
+    public float Rotation { get; set => this.SetProperty(ref field, value); }
+
+    /// <inheritdoc cref="Rotation"/>
+    public float AngularVelocity { get; set => this.SetProperty(ref field, value); }
+
+    /// <summary>
     /// Hands this object to <paramref name="visitor"/> with its own type as the type argument.
     /// </summary>
     /// <remarks>
