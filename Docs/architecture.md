@@ -80,7 +80,7 @@ because that library is a *layer* and the host is an *application*.
 
 ### Naming conventions
 
-- **Abstract base classes carry a `Base` suffix** — `GameObjectBase`, `GameBase`,
+- **Abstract base classes carry a `Base` suffix** — `GameObjectBase`, `GameSpaceBase`,
   `AetherInputControllerBase`. This is a standing convention across the Sab39 repos and it overrides
   any older naming that survives in comments or docs.
 - **The `Aether` prefix is the marker for physics-engine specificity.** A type carrying it is tied
@@ -101,15 +101,18 @@ because that library is a *layer* and the host is an *application*.
   of the base's work — `AetherGameBase` stepping the world before `Delta` had been updated would be
   a silent bug, not a compile error. Same reasoning as the non-virtual `Dispose` in
   [View lifetime and disposal](#view-lifetime-and-disposal).
-- **Games are generic in their game object type.** `GameBase<TGameObject>` owns the object list and
+- **Games are generic in their game object type.** (The object list moves to the space — see
+  [Session, Space and Level](#session-space-and-level--settled-design) — but the shape below is
+  unchanged by that, and the names below are the ones in the code today.)
+  `GameBase<TGameObject>` owns the object list and
   `AddGameObject`; `GameBase` keeps the tick loop and an abstract
   `IReadOnlyNotifyingList<GameObjectBase> GameObjects`, covariantly overridden by the generic
   subclass. `AetherGameBase` closes it as `GameBase<AetherGameObjectBase>`, so a game built on Aether
   sees `AetherGameObjectBase` statically and needs no type-test-and-throw. The UI layer holds a plain
   `GameBase` and enumerates `GameObjectBase`, so the rendering seam neither sees nor cares about the
   type argument.
-- **The tick loop lives in `GameBase`** and counts ticks and elapsed time only; `AetherGameBase` adds
-  the `World` and steps it once per tick. Ticks are driven from outside and carry the caller's
+- **The tick loop lives in the session** (`GameBase` in the code today) and counts ticks and elapsed
+  time only; the space owns the `World` and steps it once per tick. Ticks are driven from outside and carry the caller's
   timestamp, so the game measures no time of its own.
 - **Keep strong typing end to end.** Avoiding `DynamicComponent` — and the untyped, string-keyed
   parameter passing it forces — is an explicit goal, not a nice-to-have. It was the single most
@@ -653,6 +656,168 @@ game-specific about them, and generalizing them sounds like fun:
 
 ---
 
+# Session, Space and Level — settled design
+
+**Designed, not built.** The code is still in its pre-split form — `GameBase`, `AetherGameBase`,
+`AetherGameObjectBase`, objects constructed against a game. Read this section as the target. The rest
+of the doc keeps the old names where it describes code that exists; the prose renames when the code
+does.
+
+## Three concepts, three lifetimes
+
+| Concept | Lifetime | Owns |
+|---|---|---|
+| `Game` | the app | the definition of a game: its levels, and what it registers |
+| `GameSessionBase` | one playthrough | the tick loop, score, the current space, lifecycle state |
+| `GameSpaceBase` | one level | the object list, the controllers, and the physics |
+
+**Levels are what force the split.** Starting a level tears down the physics world and every object
+in it while keeping the score, so those cannot be one object. Once a session outlives a space, a level
+transition is building a new space and dropping the old one — and there is still no `Reset()`
+anywhere, which is the property the current Blazor-component-lifetime trick gets by accident.
+
+**A level is data, separate from the space that runs it.** A level that *is* the code populating a
+space forecloses level files, a level editor, procedural generation, and "the same level but harder".
+What a Level type actually looks like is open.
+
+`Game` is the *definition* only. Nothing persists past a session. A player's ongoing relationship with
+a game — high scores, unlocked levels, career — is a different thing with a different lifetime, and
+gets its own type if it ever appears rather than being stuffed into `Game`.
+
+## Naming
+
+```
+Game                the app-level definition of a game
+  GameSessionBase   one playthrough
+  GameSpaceBase     one populated space
+    AetherSpace     ... backed by an Aether World
+  GameObjectBase    unchanged
+    AetherObjectBase
+```
+
+Sporbits closes these as `SporbitsSession`, `SporbitsSpace` and `SporbitsObjectBase` — the last a new
+layer between `AetherObjectBase` and `PlanetBase`, for the things that aren't planets.
+
+**The `Game` prefix is Sabric's disambiguator, and is dropped downstream.** `Space` and `Object`
+alone are far too generic for a general-purpose framework; `AetherSpace` and `SporbitsObjectBase` are
+already unambiguous, so prefixing those too would be paying twice. The cost is that a derived type no
+longer shares a stem with its base, which is cheaper than the length.
+
+**`Session` is tentative.** It already means something in this stack — Blazor circuits, user
+sessions, scoped services — and server-side multiplayer would make the collision live, since a
+`GameSession` could then span several user sessions or a user session hold several. The `Game` prefix
+carries it for now; a better name gets taken if one turns up.
+
+## Aether drops out of the session
+
+The space owns the physics, so `AetherGameBase` has no successor: there is no Aether-flavoured
+session, and `GameSessionBase` is physics-agnostic. This carries the "`Sabric.Engine` stays fully
+abstract" goal further than the current shape does, where every game must inherit from a concrete
+Aether-descended game class.
+
+## Tick order
+
+```
+Session.Tick(stamp)
+  ├─ bookkeeping: Delta, Ticks
+  ├─ OnTick
+  │    └─ CurrentSpace.Advance(Delta)
+  │         ├─ SyncToWorld
+  │         ├─ World.Step        ← controllers run in here, Aether's and ours alike
+  │         └─ SyncFromWorld
+  └─ Ticked
+```
+
+Space transitions happen *between* ticks, in the session's reaction to a space finishing — never from
+inside `Advance`. That is what keeps a space being torn down from ever being observable mid-sweep.
+
+## Objects are constructed inert and attached
+
+```
+var planet = new PlayerPlanet { Position = ..., Radius = 2 };   // no session, no space, no body
+space.Add(planet);      // → Attach: creates its Body in the space's World
+space.Remove(planet);   // → Detach: body out of the world
+```
+
+This is what retires `EnsureInitialized`/`isInitialized`. That pair exists only because a derived
+type's body initialization needs a fully-constructed object; `Attach` runs after the constructor by
+definition, so the problem stops existing rather than being worked around.
+
+What it buys beyond that is the reason to prefer it: an object can exist before any space does, which
+is what lets a level be data *describing* objects; an object can move between spaces, carrying state
+into the next level; objects become serializable, so level files and save/load stay open; and objects
+get constructors DI can call.
+
+The design is already half-way there. `GameObjectBase` deliberately holds the authoritative `Position`
+and `Velocity` rather than reading through to the body, so a detached object already has meaningful
+state, and the sync sweep only ever walks the space's own list. What changes is that `Body` becomes
+nullable, created on attach rather than in a field initializer.
+
+**Controllers attach the same way** — `space.Add(controller)` alongside `space.Add(obj)`, same
+lifecycle. A controller learns its space from attachment rather than from a constructor parameter, so
+it too can be constructed inert and described by a level.
+
+## Controllers wrap Aether's, one adapter each
+
+**A force is not state, so it cannot travel through the sync sweep.** The sweep carries properties
+that have an authoritative copy on each side; an impulse has no authoritative copy — it is applied
+once and then gone. A Sabric controller running outside `World.Step` therefore has no way to express
+"push this" through the machinery everything else crosses the seam by.
+
+So a Sabric controller runs *inside* the step, wrapped in an Aether `Controller` that forwards to it.
+One adapter per controller rather than one adapter running them all: that is what puts each in the
+world's own controller list individually, so ordering against Aether's own controllers is expressible,
+and `Enabled` and world membership work per controller the way Aether intends.
+
+What the abstract layer grows for this is `ApplyForce`/`ApplyImpulse` as *methods* on the object, not
+synced properties — implementable by anything, including the no-physics-engine case the abstraction is
+aimed at. `Sabric.Engine` still never learns Aether exists; the adapter is the same trick as
+`[SyncWith]`.
+
+This settles controllers only. What runs *after* `SyncFromWorld`, reading settled state, is a
+different concept and is still open.
+
+## DI supplies the lifetimes
+
+The container supplies the three lifetimes: **app → session → space**. Disposal is teardown, so
+nothing needs a reset path at any level — the same property `SporbitsShell` gets today from Blazor
+component lifetime, moved somewhere the UI layer doesn't have to own.
+
+**The session is a provider, not a scope, because MS.DI scopes are flat.** A scope created from
+inside another scope is its sibling, not its child, and disposing the outer one does not take the
+inner one down (measured; see [Measured MS.DI behaviour](#measured-msdi-behaviour)). So the chain is:
+
+```
+app       the root ServiceProvider
+session   a child ServiceProvider, built per session
+space     a real CreateScope() on the session's provider
+```
+
+Only the bottom link is a scope, and that link is the one that has to be cheap and repeated — a
+level transition is a scope. Sessions are rare enough that building a provider for each is
+affordable. This shape was measured to do what the design wants: sibling spaces get distinct
+space-scoped services, they share their session, and disposing a space leaves the session up.
+
+**Anything from the app level must be forwarded into the session provider as an instance, never as
+a factory.** Registrations do not inherit across providers, so forwarding is explicit either way —
+but a provider disposes what its factories produced, so `AddSingleton(_ => root.GetRequiredService<T>())`
+makes the session's teardown dispose the app's singleton. `AddSingleton(instance)` does not. Same
+intent, opposite outcome, and nothing catches it at compile time. Two things close that off rather
+than leaving it to discipline:
+
+- **Forwarding goes through a single helper** that resolves the instance and registers it *as* an
+  instance, so the rule lives at the one call site that legitimately knows about both providers.
+  Same reasoning as `AddGameObjectView` holding the object/view type check at the one call site that
+  knows about both halves.
+- **Nothing at the app level is `IDisposable`.** `Game` is the definition of a game — its levels and
+  its registrations — and holds nothing that needs releasing. With no disposable there, the trap
+  cannot be sprung whichever way something is forwarded, and the helper is belt to that braces.
+
+The chain also gives a circuit a link of its own, which is what the view resolver's lifetime will
+need once anything renders per-circuit.
+
+---
+
 # Roads not taken
 
 Recorded so they don't get re-explored from scratch:
@@ -681,15 +846,34 @@ Recorded so they don't get re-explored from scratch:
 
 ## Measured MS.DI behaviour
 
-The settled design registers only closed types, so almost none of MS.DI's generic-resolution
-behaviour touches it. The one fact that matters, and that the road-not-taken above rests on:
-**generic constraints are validated in the `IEnumerable` path but NOT in single resolution.**
-`GetServices<IItemView<Goalpost>>()` correctly skips a `where T : PlanetBase` open registration;
-`GetService<IItemView<Goalpost>>()` throws `ArgumentException` from `MakeGenericType`.
+Two probes at `C:\Code\scratch` establish these empirically against .NET 10.0.11, with stubbed types
+mirroring the design. Re-run them rather than re-deriving anything about MS.DI by argument.
 
-A throwaway probe at `C:\Code\scratch\DiSeamProbe` (16 checks, stubbed types mirroring the design,
-.NET 10.0.11) establishes this and the rest empirically. Re-run it rather than re-deriving anything
-about MS.DI by argument.
+**Resolution** (`DiSeamProbe`, 16 checks). The settled design registers only closed types, so almost
+none of MS.DI's generic-resolution behaviour touches it. The one fact that matters, and that the
+road-not-taken above rests on: **generic constraints are validated in the `IEnumerable` path but NOT
+in single resolution.** `GetServices<IItemView<Goalpost>>()` correctly skips a `where T : PlanetBase`
+open registration; `GetService<IItemView<Goalpost>>()` throws `ArgumentException` from
+`MakeGenericType`.
+
+**Scopes** (`DiScopeProbe`, 14 checks), which is why the session is a provider rather than a scope:
+
+- **Scopes do not nest.** A scope created from inside another scope — by `IServiceScopeFactory` or by
+  `provider.CreateScope()`, identically — is a sibling. Scoped services resolve to different
+  instances in each.
+- **`IServiceScopeFactory` is the same object at every level.** Resolved from the root and from
+  inside a scope, it is reference-identical, so there is nothing for a scope to nest *with*.
+- **There is no lifetime containment between scopes.** Disposing the outer scope leaves the inner
+  one's scoped instances undisposed. Nesting cannot be faked by disposal order either.
+- **A provider disposes what its factories produced, including things it was only forwarding.**
+  `AddSingleton(_ => other.GetRequiredService<T>())` in a child provider disposes the *other*
+  provider's instance when the child is disposed. `AddSingleton(instance)` with the same instance
+  does not. This is the difference between forwarding by factory and forwarding by instance, and it
+  is invisible at the call site.
+- **A scoped mutable holder, seeded after the scope is created, does work** — and fails silently if
+  anything depending on it is resolved before the seeding, because the scope caches that resolution
+  with the holder still empty. It is the fallback if provider-per-session ever stops being viable,
+  not a first choice.
 
 If the generator ever stops being worth it and implicit fallback views become desirable,
 `sp.GetServices<IItemView<T>>().LastOrDefault()` is the sanctioned route — `GetServices` validates
@@ -707,45 +891,50 @@ and refactored just far enough to work; it is not evidence of a decision.
 Each item states the problem and whatever has been established as fact around it. It deliberately
 does not propose a solution.
 
-## Initialization and object registration
+## Levels and what builds a space
 
-**How a game, a world, and the objects in them come into existence is undesigned as a whole.** What
-exists now arrived by accident of the port rather than by choice, and the pieces don't obviously
-belong together:
+The lifecycle is settled; what fills a space is not.
 
-- `GameBase.Init()` is a separate step after construction, called by whoever owns the game.
-- `AetherGameBase` creates its `World` as a field initializer, but only enables it in `OnInit`.
-- `GameObjectBase` has a deferred `EnsureInitialized` / `Initialize` pair, guarded by an
-  `isInitialized` flag. The comment on it says initialization is deferred because a derived type's
-  `Initialize` needs the fully-constructed object; `AddGameObject` triggers it, and a derived type is
-  free to trigger it earlier — which `AetherGameObjectBase` does by touching `Body`.
-- `AetherGameObjectBase` creates its `Body` in a field initializer off the constructor's `game`
-  parameter, so a game object is in the physics world from construction, before any game has agreed
-  to hold it.
-- Sporbits' objects are lazy `field ??= new(...)` properties on the game, added to it in `OnInit`.
-- `AddGameObject`/`RemoveGameObject` are `protected`, so only the game class can spawn. There is no
-  spawn path for anything else, and one has to come from somewhere.
+**What a Level type is has not been designed.** It is data rather than code, and it describes the
+objects and controllers a space starts with. Beyond that, nothing.
 
-The question is what the intended lifecycle actually *is* — what a game object is allowed to assume
-about its world at construction, at initialization, and at the point it joins a game; and where the
-seam between "constructed" and "live in the world" should sit.
+**Who constructs the objects a level describes is a real fork.** Either the level constructs them
+directly, or it names what it wants and a factory resolved from the space's scope builds them. The
+second is what would let a level be pure data with no code at all — the prerequisite for level files —
+and lets a game substitute implementations; it also costs more machinery, and it shapes what a Level
+looks like.
 
-## Controllers
+**Where the authority to spawn sits is undecided.** `AddGameObject`/`RemoveGameObject` being
+`protected` is the current form of this: only the game class can spawn, and there is no path for
+anything else. Whatever replaces it has to let something *inside* a running game spawn — a controller,
+a collision handler, an object — without handing every caller the same power.
 
-**There is no controller concept in `Sabric.Engine` at all.** `GameBase.OnTick` is a per-tick
-extension point, but it's one hook for the derived game as a whole, not somewhere a controller plugs
-in. Controllers run only because Aether's `World.Step` drives its own controller list, and Sporbits
-reaches straight past Sabric to `World.Add(...)` for both of its.
+## Rules, events, and what happens after the step
 
-Constraints established:
+Controllers are settled: they run inside `World.Step`, wrapped one-for-one in Aether controllers.
+What is *not* settled is the other category — the thing that runs after `SyncFromWorld` and reads
+settled post-step state. Sporbits already has one without naming it: the crash test after
+`base.OnTick`.
 
-- Aether's `Controller` is a class, not an interface, so an `AetherControllerBase` cannot derive from
-  both it and a Sabric-side base.
-- An attempt at a Sabric-side `InputControllerBase` came out as a verbatim copy of the Aether one
-  with no users, and was deleted.
-- Sweep ordering is part of the same seam: anything Sabric-side running per tick has to run after
-  `SyncFromWorld`, while Aether's own controllers read bodies directly from inside `World.Step`. A
-  Sabric controller abstraction and the per-tick extension point are one question, not two.
+Two ideas raised, neither chosen:
+
+- A **rule** concept — a per-space thing with an update that runs after the sweep, the mirror of a
+  controller on the far side of the step.
+- An **event** concept — not a per-tick thing at all, but handlers responding to something that
+  happened. Collision is the obvious case: Aether's hooks fire from inside `World.Step`, so one shape
+  this could take is the step *queueing* something that the space drains after `SyncFromWorld`.
+
+The two aren't exclusive, and it isn't established that both are needed or that either is. This is the
+same question as [Collision](#collision) approached from the other side.
+
+Constraints that survive whichever way it goes:
+
+- Anything reading settled state has to run after `SyncFromWorld`, while Aether's own hooks fire from
+  inside `World.Step`. Something has to bridge those two moments.
+- Aether's `Controller` is a class, not an interface, so a Sabric-side base cannot derive from both it
+  and a Sabric base — which is why the settled design wraps rather than inherits.
+- An attempt at a Sabric-side `InputControllerBase` came out as a verbatim copy of the Aether one with
+  no users, and was deleted.
 
 ## Input
 
@@ -766,14 +955,12 @@ concern rather than an engine one.
 
 ## Dependency injection
 
-**DI is meant to be used properly throughout, and currently reaches only the view seam.** The
-rendering seam is the only real DI infrastructure in the codebase; everything around it constructs
-its collaborators directly — `SporbitsUI` does `new SporbitsGame()` as a field initializer, and the
-keyboard input source is wired up by hand in `OnInitialized`.
+The app → session → space chain and the mechanism for it are settled. What isn't:
 
-What a cleanly-designed DI setup looks like across the whole framework is undesigned: what Sabric
-registers on the host's behalf versus what a game registers, what the composition root is expected to
-say, and which of the things currently `new`ed up should be resolved instead.
+**What registers what.** What Sabric registers on the host's behalf versus what a game registers, and
+what the composition root is expected to say, is undesigned. Everything outside the view seam
+constructs its collaborators directly — `SporbitsUI` does `new SporbitsGame()` as a field
+initializer, and the keyboard input source is wired up by hand in `OnInitialized`.
 
 One lifetime fact already recorded, because it constrains the answer: `AddGameObjectViewResolver`
 registers a singleton holding the root provider, which is right while the app is one WASM client and
@@ -788,7 +975,10 @@ is bouncy, so two objects that touch stay touching.
 
 Collision events are what's wanted. Whatever `GameObjectBase` grows has to be something
 `AetherGameObjectBase` can feed without the abstract layer learning that Aether exists — the same
-seam the `[SyncWith]` sweep solved for position and velocity.
+seam the `[SyncWith]` sweep solved for position and velocity. It is bound up with
+[Rules, events, and what happens after the step](#rules-events-and-what-happens-after-the-step):
+a collision is the clearest case of something that happens inside the step and has to be handled
+outside it.
 
 Measured, so it doesn't need re-deriving: in Aether.Physics2D 2.2.0 the collision hooks are **events
 on `Body`** (`OnCollision`, `OnSeparation`) and **public delegate fields on `Fixture`**
@@ -798,17 +988,15 @@ collision is processed, so the hook is a veto as well as a notification. Both `B
 carry an `object Tag` for hanging the game object off. All of it fires from inside `World.Step`,
 which the sweep-ordering rules above already have things to say about.
 
-## Game lifecycle: start, end, and levels
+## Session lifecycle: how a space finishes
 
-**Sabric has no concept of a game starting or ending.** Sporbits has both, and almost nothing about
-either is actually Sporbits-specific: an `IsOver` flag on the game that makes `Tick` decline to
-advance, and a shell component holding a three-state enum (not started, playing, over) that uses
-Blazor's component lifetime as the entire reset mechanism — rendering the game component *is*
-starting a game, dropping it out of the tree *is* ending one.
+The three-way split and the scope chain settle where a session begins and ends, and where a level
+attaches. What remains:
 
-What belongs in Sabric, and in what shape, is open. So is **how levels would fit**: there is no need
-for them yet, but the lifecycle design shouldn't foreclose them, and knowing roughly where they'd
-attach is part of getting the lifecycle right.
+**How a space reports that it is finished, and what the session does about it.** Sporbits has an
+`IsOver` flag on the game that makes `Tick` decline to advance. Under the split, finishing is a
+property of a *space* — this level is won, lost, abandoned — and deciding what follows is the
+session's. Neither the shape of that outcome nor the session's own state machine has been designed.
 
 Two things established while building the Sporbits version that any general design has to keep:
 
@@ -841,16 +1029,3 @@ it applies, inherited by what's below it.
 
 **Hasn't been demonstrated end to end.** Being reflection-free should make it moot, but "should" is
 doing work there.
-
-## Measuring the rendering seam
-
-**No performance claim without measuring.** At two objects the win from per-view invalidation is
-architectural, and a per-view dispatch per frame has its own cost.
-
-**Narrow rendering cannot be verified just by running the game**, which is worth knowing before
-anyone tries: Blazor's diff already suppressed the redundant DOM writes under the old
-render-everything approach, so the DOM mutations look identical either way. The waste was in building
-and diffing render trees in C#, which has no visual signature at all — paint-flashing included. What
-shows it is temporary render counters, `@(++renderCount)` in each component's own markup, plus a
-temporary *stationary* object, since the case that proves per-object invalidation is a thing that
-doesn't move.
