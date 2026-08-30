@@ -18,7 +18,7 @@ namespace Sab39.Sabric.Engine;
 /// own state from them before it steps - so they have to be right from construction, before
 /// Initialize has run and before the first tick.
 /// </remarks>
-public abstract class GameObjectBase(GameBase game, Vector2 initialPosition = default) : IPropertyChange
+public abstract class GameObjectBase(GameBase game, Vector2 initialPosition = default) : IPropertyChange, IChangeNotifier
 {
     public Guid GameObjectId { get; } = Guid.NewGuid();
 
@@ -52,6 +52,13 @@ public abstract class GameObjectBase(GameBase game, Vector2 initialPosition = de
 
     protected abstract void Initialize();
 
-    public event EventHandler<string?>? PropertyChanged;
-    void IPropertyChange.OnPropertyChanged(string? propertyName) => PropertyChanged?.Invoke(this, propertyName);
+    /// <remarks>
+    /// The property name SetProperty supplies is dropped here rather than passed on. Every consumer
+    /// so far answers any change with the same re-render, and being a plain IChangeNotifier is what
+    /// lets a view subscribe to a game object with the same machinery it uses for anything else.
+    /// If a consumer ever does want to know which property moved, IPropertyValueChange is the
+    /// finer-grained interface to raise alongside this rather than in place of it.
+    /// </remarks>
+    public event EventHandler? Changed;
+    void IPropertyChange.OnPropertyChanged(string? propertyName) => Changed?.Invoke(this, EventArgs.Empty);
 }

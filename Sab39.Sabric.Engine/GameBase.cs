@@ -1,3 +1,5 @@
+using Sab39.Core.Components;
+
 namespace Sab39.Sabric.Engine;
 
 /// <summary>
@@ -15,7 +17,7 @@ public abstract class GameBase
     public long Delta { get; private set; }
     public long TotalMillis => LastTickStamp - FirstTickStamp;
 
-    public abstract IReadOnlyList<GameObjectBase> GameObjects { get; }
+    public abstract IReadOnlyNotifyingList<GameObjectBase> GameObjects { get; }
 
     protected virtual void OnInit() { }
     public void Init()
@@ -56,14 +58,29 @@ public abstract class GameBase
 public abstract class GameBase<TGameObject> : GameBase
     where TGameObject : GameObjectBase
 {
-    private readonly List<TGameObject> gameObjects = [];
-    public sealed override IReadOnlyList<TGameObject> GameObjects => this.gameObjects;
+    private readonly NotifyingList<TGameObject> gameObjects = [];
+    public sealed override IReadOnlyNotifyingList<TGameObject> GameObjects => this.gameObjects;
 
+    /// <remarks>
+    /// The hook runs before the object joins the list, and after it leaves. Adding and removing are
+    /// both announced, and a subscriber that reacts by rendering the list must never see an object
+    /// that is listed but whose registration with the world hasn't happened - or one that has been
+    /// torn down but is still listed. The list is announced only when the world agrees with it.
+    /// </remarks>
     protected void AddGameObject(TGameObject obj)
     {
         obj.EnsureInitialized();
-        this.gameObjects.Add(obj);
         OnAddGameObject(obj);
+        this.gameObjects.Add(obj);
     }
     protected virtual void OnAddGameObject(TGameObject obj) { }
+
+    protected bool RemoveGameObject(TGameObject obj)
+    {
+        if (!this.gameObjects.Remove(obj)) return false;
+
+        OnRemoveGameObject(obj);
+        return true;
+    }
+    protected virtual void OnRemoveGameObject(TGameObject obj) { }
 }

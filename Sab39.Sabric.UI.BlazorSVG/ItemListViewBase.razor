@@ -1,0 +1,9 @@
+@typeparam TItem
+@inherits ChangeSubscribingViewBase<IReadOnlyNotifyingList<TItem>>
+
+@* One fragment per item, all at the same sequence number, each keyed - which is exactly what
+   keyed diffing wants. The abstract half of this class is in the .razor.cs. *@
+@foreach (var item in Items)
+{
+    @view.Render(item, GetKey(item))
+}

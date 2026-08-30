@@ -19,6 +19,12 @@ public abstract class AetherGameBase : GameBase<AetherGameObjectBase>
 
     protected override void OnInit() => World.Enabled = true;
 
+    /// <remarks>
+    /// The counterpart to the body a game object creates for itself in its constructor. Nothing
+    /// else takes it out of the world, so without this a removed object would keep colliding.
+    /// </remarks>
+    protected override void OnRemoveGameObject(AetherGameObjectBase obj) => World.Remove(obj.Body);
+
     protected virtual void SyncToWorld()
     {
         foreach (var obj in GameObjects) obj.SyncToBody();

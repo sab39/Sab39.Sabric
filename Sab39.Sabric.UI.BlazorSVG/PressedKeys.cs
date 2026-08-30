@@ -1,3 +1,5 @@
+using Sab39.Core.Components;
+
 namespace Sab39.Sabric.UI.BlazorSVG;
 
 /// <summary>
@@ -10,7 +12,7 @@ namespace Sab39.Sabric.UI.BlazorSVG;
 /// displays it subscribe like any other view, and lets the component holding the handlers render
 /// once and then hold still.
 /// </remarks>
-public sealed class PressedKeys
+public sealed class PressedKeys : IChangeNotifier
 {
     private readonly SortedSet<string> keys = [];
 
