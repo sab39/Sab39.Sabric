@@ -1,30 +1,37 @@
 using System.Numerics;
-using System.Runtime.CompilerServices;
 
 using Sab39.Core.Components;
 
 namespace Sab39.Sabric.Engine;
 
 /// <summary>
-/// Anything that exists in the game world, with a position and a velocity in it.
+/// Anything that exists in a game space, with a position and a velocity in it.
 /// </summary>
 /// <remarks>
-/// Initialization is deferred rather than done in the constructor: a derived type's Initialize
-/// needs the fully-constructed object. Adding the object to a game triggers it, and a derived
-/// type is free to trigger it earlier.
+/// A game object is constructed inert - no space, and none of whatever a physics implementation
+/// builds for it - and becomes live when a space attaches it. Attaching is the moment a derived
+/// type can rely on: it runs after the constructor by definition, so nothing has to be deferred
+/// behind a flag, and an object can exist before any space does.
 ///
-/// Position is seeded here rather than read back out of whatever a derived type initialized
-/// from it. These properties are the authoritative copy - a physics implementation loads its
-/// own state from them before it steps - so they have to be right from construction, before
-/// Initialize has run and before the first tick.
+/// Position and Velocity are the authoritative copy, which is what lets a detached object still
+/// mean something. A physics implementation loads its own state from them before it steps.
 /// </remarks>
-public abstract class GameObjectBase(GameBase game, Vector2 initialPosition = default) : IPropertyChange, IChangeNotifier
+public abstract class GameObjectBase : IPropertyChange, IChangeNotifier
 {
     public Guid GameObjectId { get; } = Guid.NewGuid();
 
-    public virtual GameBase Game { get; } = game;
+    private GameSpaceBase? space;
 
-    public Vector2 Position { get; set => this.SetProperty(ref field, value); } = initialPosition;
+    /// <remarks>
+    /// Null until a space attaches this object, and null again once one detaches it. Narrowed by
+    /// covariant override rather than by a second field, so a derived type sees its own space type
+    /// without paying for the storage.
+    /// </remarks>
+    public virtual GameSpaceBase? Space => this.space;
+
+    public bool IsAttached => this.space is not null;
+
+    public Vector2 Position { get; set => this.SetProperty(ref field, value); }
     public Vector2 Velocity { get; set => this.SetProperty(ref field, value); }
 
     /// <summary>
@@ -38,19 +45,24 @@ public abstract class GameObjectBase(GameBase game, Vector2 initialPosition = de
     /// </remarks>
     public abstract TResult Accept<TResult>(IGameObjectVisitor<TResult> visitor);
 
-    private bool isInitialized;
-
-    public void EnsureInitialized()
+    internal void Attach(GameSpaceBase space)
     {
-        if (this.isInitialized) return;
-
-        // Set before initializing, not after: Initialize reaches members whose getters come
-        // straight back here.
-        this.isInitialized = true;
-        Initialize();
+        this.space = space;
+        OnAttached();
     }
 
-    protected abstract void Initialize();
+    internal void Detach()
+    {
+        OnDetached();
+        this.space = null;
+    }
+
+    /// <remarks>
+    /// <see cref="Space"/> is set before OnAttached runs and still set while OnDetached does, so
+    /// both can reach whatever the space provides. Between them is the object's whole live period.
+    /// </remarks>
+    protected virtual void OnAttached() { }
+    protected virtual void OnDetached() { }
 
     /// <remarks>
     /// The property name SetProperty supplies is dropped here rather than passed on. Every consumer

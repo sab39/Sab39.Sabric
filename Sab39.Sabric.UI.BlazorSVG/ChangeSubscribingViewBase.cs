@@ -10,7 +10,8 @@ namespace Sab39.Sabric.UI.BlazorSVG;
 /// detaching and what to do about it are the same every time. Subscribe and Unsubscribe are sealed
 /// here so a derived view supplies nothing but its Source.
 ///
-/// A source with a richer event - <see cref="Sab39.Sabric.Engine.GameBase.Ticked"/>, say - derives
+/// A source with a richer event - <see cref="Sab39.Sabric.Engine.GameSessionBase.Ticked"/>, say -
+/// derives
 /// from <see cref="SubscribingViewBase{TSource}"/> directly and says how to attach to it.
 /// </remarks>
 public abstract class ChangeSubscribingViewBase<TSource> : SubscribingViewBase<TSource>

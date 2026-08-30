@@ -95,25 +95,21 @@ because that library is a *layer* and the host is an *application*.
   solve, it solves it well, and the design should leverage it naturally rather than grow a parallel
   registry of its own. (How far this is actually carried through is an open question below; the
   decision that it *should* be is not.)
-- **Public entry points are non-virtual; derived types override a `protected` hook.** `GameBase.Init`
-  and `Tick` do their own bookkeeping and call `OnInit`/`OnTick`; `AddGameObject` calls
-  `OnAddGameObject`. A derived type cannot forget `base.X()` and cannot put itself on the wrong side
-  of the base's work — `AetherGameBase` stepping the world before `Delta` had been updated would be
-  a silent bug, not a compile error. Same reasoning as the non-virtual `Dispose` in
-  [View lifetime and disposal](#view-lifetime-and-disposal).
-- **Games are generic in their game object type.** (The object list moves to the space — see
-  [Session, Space and Level](#session-space-and-level--settled-design) — but the shape below is
-  unchanged by that, and the names below are the ones in the code today.)
-  `GameBase<TGameObject>` owns the object list and
-  `AddGameObject`; `GameBase` keeps the tick loop and an abstract
-  `IReadOnlyNotifyingList<GameObjectBase> GameObjects`, covariantly overridden by the generic
-  subclass. `AetherGameBase` closes it as `GameBase<AetherGameObjectBase>`, so a game built on Aether
-  sees `AetherGameObjectBase` statically and needs no type-test-and-throw. The UI layer holds a plain
-  `GameBase` and enumerates `GameObjectBase`, so the rendering seam neither sees nor cares about the
-  type argument.
-- **The tick loop lives in the session** (`GameBase` in the code today) and counts ticks and elapsed
-  time only; the space owns the `World` and steps it once per tick. Ticks are driven from outside and carry the caller's
-  timestamp, so the game measures no time of its own.
+- **Public entry points are non-virtual; derived types override a `protected` hook.**
+  `GameSessionBase.Init` and `Tick` do their own bookkeeping and call `OnInit`/`OnTick`;
+  `GameSpaceBase.Add` attaches and calls `OnAdd`. A derived type cannot forget `base.X()` and cannot
+  put itself on the wrong side of the base's work — a space stepping the world before `Delta` had
+  been updated would be a silent bug, not a compile error. Same reasoning as the non-virtual
+  `Dispose` in [View lifetime and disposal](#view-lifetime-and-disposal).
+- **Spaces are generic in their game object type.** `GameSpaceBase<TObject>` owns the object list and
+  `Add`/`Remove`; `GameSpaceBase` keeps an abstract `IReadOnlyNotifyingList<GameObjectBase>
+  GameObjects`, covariantly overridden by the generic subclass. `AetherSpace` closes it as
+  `GameSpaceBase<AetherObjectBase>`, so a game built on Aether sees `AetherObjectBase` statically and
+  needs no type-test-and-throw. The UI layer enumerates `GameObjectBase`, so the rendering seam
+  neither sees nor cares about the type argument.
+- **The tick loop lives in the session** and counts ticks and elapsed time only; the space owns the
+  `World` and steps it once per advance. Ticks are driven from outside and carry the caller's
+  timestamp, so the session measures no time of its own.
 - **Keep strong typing end to end.** Avoiding `DynamicComponent` — and the untyped, string-keyed
   parameter passing it forces — is an explicit goal, not a nice-to-have. It was the single most
   frustrating part of the previous attempt at this game.
@@ -415,7 +411,7 @@ were extracted would have frozen them.
 
 ## Views subscribe to the object, not to the tick
 
-Subscribing every view to a tick event on `GameBase` only relocates the fan-out — N views wake N
+Subscribing every view to a tick event on `GameSessionBase` only relocates the fan-out — N views wake N
 times a tick whether or not anything moved. A static obstacle, of which there will eventually be
 many, should never invalidate at all. So the change event belongs on `GameObjectBase`, and the object
 is responsible for knowing whether it changed.
@@ -463,16 +459,16 @@ awake-but-stationary body costs no notification.
 
 ## The physics sync sweep
 
-`AetherGameObjectBase.Position` and `Velocity` used to read straight through to Aether's `Body`.
+`AetherObjectBase.Position` and `Velocity` used to read straight through to Aether's `Body`.
 `World.Step` mutates the body directly, so our setters were never called and the object could not
 know it had moved. That delegation was an artifact of the old code having no separation at all; it is
 not a design and is gone.
 
-**`AetherGameBase.OnTick` is `SyncToWorld(); World.Step(Delta); SyncFromWorld();`.** Each is a
-`protected virtual` on the game that walks `GameObjects` calling `protected internal virtual`
+**`AetherSpace.OnAdvance` is `SyncToWorld(); World.Step(delta); SyncFromWorld();`.** Each is a
+`protected virtual` on the space that walks `GameObjects` calling `protected internal virtual`
 `SyncToBody()` / `SyncFromBody()` on the object. `Position` and `Velocity` are ordinary
 auto-properties on `GameObjectBase`; `Rotation` and `AngularVelocity` are the same on
-`AetherGameObjectBase`, since rotation is not a concept the abstract layer carries. All four are
+`AetherObjectBase`, since rotation is not a concept the abstract layer carries. All four are
 copied in both directions.
 
 **Both methods are generated**, from `[SyncWith]` attributes, by the generator in `Sab39.Core.CodeGen`
@@ -491,11 +487,11 @@ What it buys:
   longer reach the body at all, which is why the *to*-world half exists: without it, anything
   assigned between ticks (a puck's initial `Velocity`, say) would be invisible to the physics.
 
-  The same reasoning decides where initial state comes from: **the properties are the authoritative
-  copy, so they are seeded through the constructor** — `GameObjectBase` takes an `initialPosition`
-  and `AetherGameObjectBase` passes its own through — rather than read back out of the body after
-  `InitializeBody`. Seeding from the body would have to happen inside `Initialize`, which runs
-  *after* an object initializer has had its say, and would silently overwrite it.
+  The same reasoning decides which way initial state travels: **the properties are the authoritative
+  copy, so the physics seeds itself from them** — `AetherObjectBase` builds its body out of
+  `Position` and `Rotation` when it attaches — rather than the properties being read back out of the
+  body afterwards. Reading back would silently overwrite whatever an object initializer had said,
+  since attaching happens after construction by definition.
 
 What it introduces:
 
@@ -517,7 +513,7 @@ What it introduces:
 
 ## The rest of the pieces
 
-- **`GameBase` raises a `Ticked` event** at the very end of `Tick`, after `Ticks` and `LastTickStamp`
+- **`GameSessionBase` raises a `Ticked` event** at the very end of `Tick`, after `Ticks` and `LastTickStamp`
   are updated, so a subscriber never sees a tick-old state. **Deliberately no `OnTicked` raiser.** In
   .NET convention `OnXyz` is *the protected virtual that raises event `Xyz`*, and `OnTick` here is a
   pure lifecycle hook with no event behind it; omitting the raiser keeps the two from colliding.
@@ -530,7 +526,7 @@ What it introduces:
 
   **`ChangeSubscribingViewBase<TSource>` seals in the `IChangeNotifier` case**, leaving derived views
   nothing to supply but `Source`. Everything but the game-stats view uses it — game objects, the
-  object list, the pressed keys. `GameBase.Ticked` is a richer event with no reason to become a
+  object list, the pressed keys. `GameSessionBase.Ticked` is a richer event with no reason to become a
   coarse one, so the stats view derives from `SubscribingViewBase` directly and says how to attach.
 
   This reverses an earlier decision that a common change interface wasn't worth a second, coarser
@@ -610,8 +606,8 @@ list view exists to restore for the one case that needs it.
 
 ## The list view
 
-`GameBase.GameObjects` is an `IReadOnlyNotifyingList<TGameObject>` over a private
-`NotifyingList<TGameObject>`, and `ItemListViewBase<TItem>` is the component that watches it. This is
+`GameSpaceBase.GameObjects` is an `IReadOnlyNotifyingList<TObject>` over a private
+`NotifyingList<TObject>`, and `ItemListViewBase<TItem>` is the component that watches it. This is
 what lets the root's `ShouldRender` be a flat `false`: a spawn re-renders a list's worth of fragments
 rather than the whole tree, and nothing above the list ever renders again.
 
@@ -629,20 +625,18 @@ subscription is released.
   markup is an ordinary `@foreach` in the `.razor` and `abstract` lives in the `.razor.cs`. Worth
   knowing generally: the same trick is how a `.razor` component is made `sealed`.
 - **`GameObjectsView` closes it** rather than the call site writing
-  `<ItemListViewBase TItem="GameObjectBase">`. Inference would take `TItem` from whatever the game's
-  list is typed as — `AetherGameObjectBase` — and then ask for an `IItemView` of *that*, which MS.DI
+  `<ItemListViewBase TItem="GameObjectBase">`. Inference would take `TItem` from whatever the space's
+  list is typed as — `AetherObjectBase` — and then ask for an `IItemView` of *that*, which MS.DI
   would not find, since it does no variance resolution. Covariance on the list means closing it costs
   nothing.
-- **`AddGameObject` runs its hook before the object joins the list; `RemoveGameObject` runs it after
-  the object leaves.** Both are announced, and **the list is only ever announced when the world
-  agrees with it** — no subscriber can see an object that is listed but not registered, or one torn
-  down but still listed.
-- **Removal is asymmetric with adding and the asymmetry is invisible until tried.**
-  `AetherGameBase.OnRemoveGameObject` does `World.Remove(obj.Body)`; a game also has to undo whatever
-  *it* did on add, and Aether's `GravityController` has no `RemoveBody` — only `Gravity.Bodies`, the
+- **`Add` attaches and runs its hook before the object joins the list; `Remove` runs its hook and
+  detaches after the object leaves.** Both are announced, and **the list is only ever announced when
+  the space agrees with it** — no subscriber can see an object that is listed but not live, or one
+  torn down but still listed.
+- **Removal is asymmetric with adding and the asymmetry is invisible until tried.** Taking the body
+  out of the world is the object's own business, in `OnDetached`; a *space* also has to undo whatever
+  it did on add, and Aether's `GravityController` has no `RemoveBody` — only `Gravity.Bodies`, the
   list `AddBody` appends to.
-- **`AddGameObject` and `RemoveGameObject` are both `protected`**, so nothing outside a game class
-  can spawn anything. A spawn path has to come from somewhere eventually; see the open questions.
 
 **Future work, wanted but not now.** Two pieces of this are Blazor plumbing with nothing
 game-specific about them, and generalizing them sounds like fun:
@@ -658,10 +652,9 @@ game-specific about them, and generalizing them sounds like fun:
 
 # Session, Space and Level — settled design
 
-**Designed, not built.** The code is still in its pre-split form — `GameBase`, `AetherGameBase`,
-`AetherGameObjectBase`, objects constructed against a game. Read this section as the target. The rest
-of the doc keeps the old names where it describes code that exists; the prose renames when the code
-does.
+The split, the naming, and the attach model are built. The controller adapters and the DI chain are
+designed but not yet written — `Sporbits.Engine.PlayerInputController` still reaches past Sabric to
+`World.Add`, and `SporbitsUI` still constructs its own session.
 
 ## Three concepts, three lifetimes
 
@@ -710,10 +703,10 @@ carries it for now; a better name gets taken if one turns up.
 
 ## Aether drops out of the session
 
-The space owns the physics, so `AetherGameBase` has no successor: there is no Aether-flavoured
-session, and `GameSessionBase` is physics-agnostic. This carries the "`Sabric.Engine` stays fully
-abstract" goal further than the current shape does, where every game must inherit from a concrete
-Aether-descended game class.
+The space owns the physics, so the old `AetherGameBase` has no successor: there is no
+Aether-flavoured session, and `GameSessionBase` is physics-agnostic. This carries the
+"`Sabric.Engine` stays fully abstract" goal further than the pre-split shape did, where every game
+had to inherit from a concrete Aether-descended game class.
 
 ## Tick order
 
@@ -904,10 +897,10 @@ second is what would let a level be pure data with no code at all — the prereq
 and lets a game substitute implementations; it also costs more machinery, and it shapes what a Level
 looks like.
 
-**Where the authority to spawn sits is undecided.** `AddGameObject`/`RemoveGameObject` being
-`protected` is the current form of this: only the game class can spawn, and there is no path for
-anything else. Whatever replaces it has to let something *inside* a running game spawn — a controller,
-a collision handler, an object — without handing every caller the same power.
+**Where the authority to spawn sits is undecided.** `GameSpaceBase.Add`/`Remove` are public, which is
+forced rather than chosen: the space is the thing being populated, so once population is external
+something has to be callable. Whether *everything* holding a space should be able to spawn into it is
+the actual question, and it is unanswered.
 
 ## Rules, events, and what happens after the step
 
@@ -974,7 +967,7 @@ all. Sporbits detects its one collision — puck into player's planet — with a
 is bouncy, so two objects that touch stay touching.
 
 Collision events are what's wanted. Whatever `GameObjectBase` grows has to be something
-`AetherGameObjectBase` can feed without the abstract layer learning that Aether exists — the same
+`AetherObjectBase` can feed without the abstract layer learning that Aether exists — the same
 seam the `[SyncWith]` sweep solved for position and velocity. It is bound up with
 [Rules, events, and what happens after the step](#rules-events-and-what-happens-after-the-step):
 a collision is the clearest case of something that happens inside the step and has to be handled
@@ -993,10 +986,11 @@ which the sweep-ordering rules above already have things to say about.
 The three-way split and the scope chain settle where a session begins and ends, and where a level
 attaches. What remains:
 
-**How a space reports that it is finished, and what the session does about it.** Sporbits has an
-`IsOver` flag on the game that makes `Tick` decline to advance. Under the split, finishing is a
-property of a *space* — this level is won, lost, abandoned — and deciding what follows is the
-session's. Neither the shape of that outcome nor the session's own state machine has been designed.
+**How a space reports that it is finished, and what the session does about it.** Sporbits carries an
+`IsOver` flag on the space that the session reads and refuses to advance past. That much is only the
+old flag moved across the split — finishing is a property of a space (this level is won, lost,
+abandoned) and deciding what follows is the session's, but neither the shape of that outcome nor the
+session's own state machine has been designed.
 
 Two things established while building the Sporbits version that any general design has to keep:
 

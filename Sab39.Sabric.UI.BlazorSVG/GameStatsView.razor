@@ -1,33 +1,33 @@
-@inherits SubscribingViewBase<GameBase>
+@inherits SubscribingViewBase<GameSessionBase>
 
 @* Genuinely changes every tick, which is what makes it the one legitimate subscriber to Ticked. *@
-<div>Ticks: @Game.Ticks</div>
-<div>Runtime: @Game.TotalMillis ms (@Game.FirstTickStamp to @Game.LastTickStamp)</div>
-<div>Delta: @Game.Delta ms</div>
+<div>Ticks: @Session.Ticks</div>
+<div>Runtime: @Session.TotalMillis ms (@Session.FirstTickStamp to @Session.LastTickStamp)</div>
+<div>Delta: @Session.Delta ms</div>
 <div>
     FPS:
-    @if (Game.Delta > 0)
+    @if (Session.Delta > 0)
     {
-        @(1000 / Game.Delta)
+        @(1000 / Session.Delta)
     }
 </div>
 <div>
     Average FPS:
-    @if (Game.TotalMillis > 0)
+    @if (Session.TotalMillis > 0)
     {
-        @(Game.Ticks * 1000 / Game.TotalMillis)
+        @(Session.Ticks * 1000 / Session.TotalMillis)
     }
 </div>
 
 @code {
     [Parameter]
     [EditorRequired]
-    public GameBase Game { get; set; } = default!;
+    public GameSessionBase Session { get; set; } = default!;
 
-    protected override GameBase? Source => Game;
+    protected override GameSessionBase? Source => Session;
 
-    protected override void Subscribe(GameBase source) => source.Ticked += HandleTicked;
-    protected override void Unsubscribe(GameBase source) => source.Ticked -= HandleTicked;
+    protected override void Subscribe(GameSessionBase source) => source.Ticked += HandleTicked;
+    protected override void Unsubscribe(GameSessionBase source) => source.Ticked -= HandleTicked;
 
     private void HandleTicked(object? sender, EventArgs args) => Invalidate();
 }
