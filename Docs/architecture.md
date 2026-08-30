@@ -4,11 +4,22 @@ Sabric is a small game framework: a tick loop, game objects, a physics seam, and
 that turns a heterogeneous list of game objects into strongly-typed Blazor components. It is built
 for the enjoyment of building it. Reinventing this particular wheel is the point.
 
-**This doc knows about Sporbits.** `Sab39.Sporbits` is Sabric's only consumer, now or planned, so
-the abstraction is theoretical — kept clean because a clean split is the fun part, not because a
-second consumer is coming. Rather than maintain a pretence of ignorance, this doc names Sporbits
-freely when a concrete example makes something clearer, and says which side of the line each piece
-belongs on. The *code* keeps the split strictly; the prose doesn't have to.
+**This doc knows about Sporbits, and Sporbits is the point.** The order things happened in explains
+most of the shape below, and is worth having up front: the game came first; Sabric exists because
+the game needed an engine; the physics seam exists because Mario and Flappy Bird are games that seam
+ought to be able to express, and a framework that can only express the one game it was written for
+isn't interesting; and `Sabric.Engine.Rectro` and `Sab39.SabbyBird` exist so that seam has something
+other than an argument behind it.
+
+So **`Sab39.Sporbits` is Sabric's only real consumer, now or planned.** SabbyBird is a proof of
+concept rather than a second game — the smallest thing that drives Rectro from the outside — and
+nothing in Sabric is shaped by what SabbyBird might want next. What it is for is that an abstraction
+with two implementations under it and two games on top has been *checked*, where one of each is only
+ever a claim.
+
+Rather than maintain a pretence of ignorance, this doc names both freely when a concrete example
+makes something clearer, and says which side of the line each piece belongs on. The *code* keeps the
+split strictly; the prose doesn't have to.
 
 ## How to read this
 
@@ -25,10 +36,11 @@ concrete reason — and if a reason turns up, it belongs in the doc. Everything 
 
 ## Layers
 
-Three repos. `Sab39.Core` holds infrastructure with nothing to do with games at all — the
+Four repos. `Sab39.Core` holds infrastructure with nothing to do with games at all — the
 house-style analyzer and source generators, and `Sab39.Core.Components` (change notification, see
 [Property change lives in `Sab39.Core`](#property-change-lives-in-sab39core-not-in-sabric)).
 `Sab39.Sabric` holds the game-agnostic framework. `Sab39.Sporbits` holds the game.
+`Sab39.SabbyBird` holds the proof of concept.
 
 ```
 Sab39.Core.Components         change-notification plumbing, usable by anything
@@ -36,6 +48,7 @@ Sab39.Core.Components         change-notification plumbing, usable by anything
 Sab39.Sabric.Core
 Sab39.Sabric.Engine           engine abstractions (fully abstract)
 Sab39.Sabric.Engine.Aether    Aether.Physics2D implementation of those abstractions
+Sab39.Sabric.Engine.Rectro    a second implementation, so the abstractions have two to answer to
 Sab39.Sabric.CodeGen                 generator: the Accept overrides
 Sab39.Sabric.UI               frontend abstractions
 Sab39.Sabric.UI.BlazorSVG     non-game-specific parts of a Blazor+SVG frontend
@@ -47,7 +60,16 @@ Sab39.Sporbits.UI
 Sab39.Sporbits.UI.BlazorSVG            the Sporbits renderers, as a Razor class library
 Sab39.Sporbits.UI.BlazorSVG.Web        Blazor Web App host
 Sab39.Sporbits.UI.BlazorSVG.Web.Client its WASM project
+
+Sab39.SabbyBird.Engine                 the same shape, minus the layers it can do without
+Sab39.SabbyBird.UI.BlazorSVG
+Sab39.SabbyBird.UI.BlazorSVG.Web
+Sab39.SabbyBird.UI.BlazorSVG.Web.Client
 ```
+
+**SabbyBird deliberately has no `.Core` and no plain `.UI`.** Whether those two layers pull their
+weight is an [open question](#layer-boundaries-that-arent-pulling-their-weight), and a second game
+built without them is the cheapest way to find out. Nothing has wanted them yet.
 
 The app host is a **Blazor Web App**, not the standalone WASM template: static hosting has to stay
 *possible* (the `.Client` project can publish standalone) without being locked in, since server-side
@@ -56,10 +78,13 @@ because that library is a *layer* and the host is an *application*.
 
 ### What each layer is meant to know
 
-- **Sabric.Engine** — game objects, coordinates, collision, generic physics. Knows nothing about any
-  specific game, and nothing about any specific physics library.
+- **Sabric.Engine** — game objects, coordinates, collision, effects, generic physics. Knows nothing
+  about any specific game, and nothing about any specific physics library.
 - **Sabric.Engine.Aether** — the Aether.Physics2D implementation of those abstractions. Exposes
   Aether's `World`, `Body` and `Controller` directly.
+- **Sabric.Engine.Rectro** — a second implementation, and the only reason to trust the first one's
+  seam. Purely X/Y axis-aligned rectangles, with collisions resolved by stopping dead rather than by
+  exchanging momentum: see [The second engine](#the-second-engine--settled-design).
 - **Sabric.UI** — a general rendering abstraction, of which BlazorSVG is just one possible
   implementation. Currently empty; see the open questions.
 - **Sabric.UI.BlazorSVG** — how to render a game and its objects in SVG in the abstract; also feeds
@@ -76,10 +101,15 @@ because that library is a *layer* and the host is an *application*.
 ### Naming conventions
 
 - **Abstract base classes carry a `Base` suffix** — `GameObjectBase`, `GameSpaceBase`,
-  `AetherInputControllerBase`. This is a standing convention across the Sab39 repos and it overrides
-  any older naming that survives in comments or docs.
-- **The `Aether` prefix is the marker for physics-engine specificity.** A type carrying it is tied
-  to Aether, and a game is free to use it; a type without one has to stay agnostic.
+  `GameEffectBase`. This is a standing convention across the Sab39 repos and it overrides any older
+  naming that survives in comments or docs.
+- **An engine's name is the prefix that marks engine specificity.** `Aether` and `Rectro` both do
+  it: a type carrying one is tied to that engine, and a game is free to use it, while a type
+  carrying neither has to stay agnostic. Almost every concept in the engine layer exists twice under
+  this rule — `AetherSpace` / `RectroSpace`, `AetherObjectBase` / `RectroObjectBase`,
+  `AetherCollisionInfo` and no Rectro counterpart because there is nothing extra to say.
+- **An *effect* is the ongoing thing; a *controller* is Aether's own type and nothing else.** The
+  word was freed deliberately — see [Effects](#effects--settled-design).
 
 ---
 
@@ -108,12 +138,22 @@ because that library is a *layer* and the host is an *application*.
 - **Keep strong typing end to end.** Avoiding `DynamicComponent` — and the untyped, string-keyed
   parameter passing it forces — is an explicit goal, not a nice-to-have. It was the single most
   frustrating part of the previous attempt at this game.
-- **Physics stays behind an abstraction (tentative).** `Sabric.Engine` should be fully abstract, with
+- **Physics stays behind an abstraction.** `Sabric.Engine` is fully abstract, with
   `Sabric.Engine.Aether` building on it the same way `Sabric.UI.BlazorSVG` builds on `Sabric.UI`. The
-  motivation is that the abstraction ought to be able to express something like Mario or Flappy Bird,
-  where a real physics engine would be silly. This is subject to working through what the API seam
-  actually looks like and whether it turns out to be sensible — the counter-pressure is that a fully
-  abstract layer may require straight-up duplicating a lot of what Aether already does natively.
+  motivation was that the abstraction ought to be able to express something like Mario or Flappy
+  Bird, where a real physics engine would be silly.
+
+  This was tentative for as long as Aether was the only thing under it, because an abstraction with
+  one implementation is indistinguishable from that implementation's API with the names changed.
+  **Rectro is what settled it**, and Flappy Bird turned out to be the literal test rather than the
+  figurative one. What the second implementation established, and what no amount of arguing could
+  have: every seam now has a line through it separating what any engine can do from what a solver
+  presupposes, and each of those lines was drawn where an engine with no solver actually needed it
+  rather than where it looked right.
+
+  The counter-pressure it was weighed against — that a fully abstract layer might mean duplicating a
+  lot of what Aether does natively — did not materialise. Rectro is a few hundred lines, because an
+  engine only has to implement the abstraction, not Aether.
 - **Vectors are `System.Numerics.Vector2`, not a Sabric type.** Owning one was tried and dropped. The
   only thing owning it would have bought is implicit conversion to Aether's `Vector2`, and C# has no
   extension operators, so a conversion operator has to be declared inside one of the two types —
@@ -461,10 +501,27 @@ not a design and is gone.
 
 **`AetherSpace.OnAdvance` is `SyncToWorld(); World.Step(delta); SyncFromWorld();`.** Each is a
 `protected virtual` on the space that walks `GameObjects` calling `protected internal virtual`
-`SyncToBody()` / `SyncFromBody()` on the object. `Position` and `Velocity` are ordinary
-auto-properties on `GameObjectBase`; `Rotation` and `AngularVelocity` are the same on
-`AetherObjectBase`, since rotation is not a concept the abstract layer carries. All four are
-copied in both directions.
+`SyncToBody()` / `SyncFromBody()` on the object. `Position`, `Velocity`, `Rotation` and
+`AngularVelocity` are ordinary auto-properties on `GameObjectBase`, and `Mass` is one on
+`AetherObjectBase`. All five are copied in both directions.
+
+**Where each of those is declared is the same line drawn twice.** Rotation is on the generic base
+because the boundary between that layer and an engine's is the existence of *physics*, and rotation
+exists perfectly well without any — a top-down car racing game rotates its cars and has no solver
+anywhere. Mass is not, because acceleration and delta-v are meaningful in a game with no physics
+engine and mass is not. The same cut separates `CollisionInfo` from `AetherCollisionInfo` and
+`IEffectContext` from `IAetherEffectContext`; it is worth recognising, because getting a new concept
+onto the right side of it is usually just asking which of those two questions it answers.
+
+Rectro carries `Rotation` without ever changing it, which is the price of that line being drawn
+around physics rather than around capability, and is the right price — see
+[The second engine](#the-second-engine--settled-design).
+
+**`Mass` is independent of any shape's density and size**, rather than computed from them: that
+computation doesn't generalize past a planet. Whatever knows how heavy a thing is sets it — Sporbits'
+`PlanetBase` does it from its radius and density once its fixture exists — and being synced like
+everything else is what keeps Aether's own recomputation from mattering, since our value wins going
+in.
 
 **Both methods are generated**, from `[SyncWith]` attributes, by the generator in `Sab39.Core.CodeGen`
 — see `Sab39.Core`'s `Docs/architecture.md` for its design. Nothing about it knows Aether exists;
@@ -494,7 +551,9 @@ What it introduces:
   whole answer: our values win going in, the step's values win coming out.
 - **Reads between `World.Step` and `SyncFromWorld` are stale.** Aether's own controllers read the
   body directly and are unaffected, but anything Sabric-side running per tick has to run after the
-  sweep.
+  sweep — or be handed something that reads through to the live copy on its behalf. That second
+  option is what `IEffectContext` is, and this staleness is the whole reason it has a read side at
+  all; an effect runs *inside* the step, so it cannot be after the sweep.
 - **The push is guarded; the pull isn't.** Writing is the expensive direction — a position goes
   through Aether's `SetTransform` and touches broadphase state, and a velocity can wake a sleeping
   body, so writing unconditionally plausibly stopped Aether ever sleeping anything. The guard is a
@@ -650,8 +709,7 @@ game-specific about them, and generalizing them sounds like fun:
 # Session, Space and Level — settled design
 
 The split, the naming, and the attach model are built. The DI chain is designed but not yet written —
-`SporbitsUI` still constructs its own session. Controllers are deliberately *not* abstracted; see the
-open question.
+`SporbitsUI` still constructs its own session.
 
 ## Three concepts, three lifetimes
 
@@ -659,7 +717,7 @@ open question.
 |---|---|---|
 | `Game` | the app | the definition of a game: its levels, and what it registers |
 | `GameSessionBase` | one playthrough | the tick loop, score, the current space, lifecycle state |
-| `GameSpaceBase` | one level | the object list, the controllers, and the physics |
+| `GameSpaceBase` | one level | the object list, the effect list, and the physics |
 
 **Levels are what force the split.** Starting a level tears down the physics world and every object
 in it while keeping the score, so those cannot be one object. Once a session outlives a space, a level
@@ -681,12 +739,18 @@ Game                the app-level definition of a game
   GameSessionBase   one playthrough
   GameSpaceBase     one populated space
     AetherSpace     ... backed by an Aether World
-  GameObjectBase    unchanged
+    RectroSpace     ... backed by nothing; it is its own engine
+  GameObjectBase
     AetherObjectBase
+    RectroObjectBase
+  GameEffectBase    one ongoing thing in a space
+    AetherEffectBase
 ```
 
 Sporbits closes these as `SporbitsSession`, `SporbitsSpace` and `SporbitsObjectBase` — the last a new
-layer between `AetherObjectBase` and `PlanetBase`, for the things that aren't planets.
+layer between `AetherObjectBase` and `PlanetBase`, for the things that aren't planets. SabbyBird does
+the same against the Rectro halves, and has no equivalent of the effect base because none of its
+effects need to know what engine they are running under.
 
 **The `Game` prefix is Sabric's disambiguator, and is dropped downstream.** `Space` and `Object`
 alone are far too generic for a general-purpose framework; `AetherSpace` and `SporbitsObjectBase` are
@@ -707,19 +771,38 @@ had to inherit from a concrete Aether-descended game class.
 
 ## Tick order
 
+The shape that is engine-independent is short: **effects run during the advance, collisions are
+dispatched after it.**
+
 ```
 Session.Tick(stamp)
   ├─ bookkeeping: Delta, Ticks
   ├─ OnTick
   │    └─ CurrentSpace.Advance(Delta)
-  │         ├─ OnAdvance
-  │         │    ├─ SyncToWorld
-  │         │    ├─ World.Step   ← controllers run in here, Aether's and ours alike;
-  │         │    │                 collision hooks fire in here and queue
-  │         │    └─ SyncFromWorld
-  │         └─ DispatchEvents    ← the queue drains here, on settled state
+  │         ├─ OnAdvance        ← the engine's own; effects run somewhere in here
+  │         └─ DispatchEvents   ← the queue drains here, on settled state
   └─ Ticked
 ```
+
+Where inside `OnAdvance` the effects run is the engine's business, and the two answers are genuinely
+different phases rather than two spellings of one:
+
+```
+AetherSpace.OnAdvance            RectroSpace.OnAdvance
+  ├─ SyncToWorld                   ├─ Apply     ← every effect, on the space's own list
+  ├─ World.Step                    ├─ Move      ← positions advance by velocity
+  │    ├─ controllers run here     └─ Collide   ← overlaps found, separated, queued
+  │       - Aether's own, and
+  │         one forwarder per
+  │         Sabric effect
+  │    └─ collision hooks fire
+  │       here and queue
+  └─ SyncFromWorld
+```
+
+Aether has no phase corresponding to Rectro's, and Rectro has no solver to run before; `IEffectContext`
+is what papers over the difference, which is why "during the advance, before events" is as fine as
+the contract gets. See [Effects](#effects--settled-design).
 
 A game's own `OnAdvance` override runs *inside* `OnAdvance`, so before `DispatchEvents` — anything
 wanting settled post-step state handles an event rather than overriding `OnAdvance`.
@@ -749,12 +832,15 @@ and `Velocity` rather than reading through to the body, so a detached object alr
 state, and the sync sweep only ever walks the space's own list. What changes is that `Body` becomes
 nullable, created on attach rather than in a field initializer.
 
-**Controllers deliberately do not attach this way.** `AetherSpace.AddController` takes one of Aether's
-own `Controller`s and puts it straight in the world, kept separate from `Add` rather than folded into
-it: a controller has no position, is never rendered, and none of the inert-then-attach model applies
-to it. Sharing one list would buy a shorter call site at the cost of a list that means two things.
-That is the whole of Sabric's controller story — a holding pattern rather than a design, and the
-reason it is one is an open question.
+**Effects attach the same way, on their own list.** `AddEffect`/`RemoveEffect` mirror `Add`/`Remove`
+exactly — attach, hook, list on the way in; list, hook, detach on the way out — and `GameEffectBase`
+has the same `Space` / `IsAttached` / `OnAttached` / `OnDetached` lifecycle a game object has. The
+hook is what an engine that has to install an effect somewhere works with.
+
+**Two lists rather than one**, because an effect has no position and is never rendered: sharing one
+would buy a shorter call site at the cost of a list that means two things, and the view layer
+subscribes to the object list. The effect list is a plain `List` where the object list is a
+`NotifyingList`, for the same reason — there is nothing for a view to subscribe to.
 
 ## DI stays flat: one container, the host's
 
@@ -808,17 +894,210 @@ about spaces.
 
 ---
 
+# The second engine — settled design
+
+`Sabric.Engine.Rectro` is a purely X/Y, axis-aligned-rectangle engine. It exists to drive the
+`Engine` / `Aether` seam from the other side, and everything about it follows from that: as small as
+it can be while still being a real engine a game could be built on.
+
+**It resolves collisions without physics.** Two rectangles that meet have the velocity component on
+the collision axis set to zero, are positioned adjacent rather than overlapping, and the general
+collision event fires. You collide, you stop dead on that axis; no momentum is exchanged.
+
+That is what makes it a real test of the collision split rather than a second way of writing the
+first one. Rectro **cannot** produce an impulse, so `CollisionInfo` carrying point, normal and
+approach speed while `AetherCollisionInfo` adds impulse is exactly the line it needs to be. Approach
+speed is relative velocity along the normal and needs no solver, so Rectro computes it fine.
+
+## Rectro says no to rotation, and that is the interesting part
+
+Rectro's rectangles are axis-aligned — the first syllable of the name is load-bearing — so it cannot
+turn anything, and no version of it ever will. `IEffectContext.ApplyAngularAcceleration` and
+`ApplyAngularDeltaV` throw `NotSupportedException` there.
+
+**There is deliberately no further-stripped-down interface with the angular half left off.** That is
+the YAGNI-shaped answer and it is the wrong one even in this repo. A seam that fragments by
+capability costs every effect a type test to discover what it is holding, and what it buys is a
+compile-time guarantee about a combination — an effect that turns things, on an engine that doesn't —
+that nobody assembles by accident. One interface an engine is allowed to decline part of is the
+cheaper deal.
+
+The reads are not declined. `GetRotation` and `GetAngularVelocity` answer on any engine, because a
+Rectro object has a `Rotation` like any other game object and something may well be drawing by it.
+What Rectro refuses is making one change.
+
+## SabbyBird
+
+`Sab39.SabbyBird` is the smallest real consumer of Rectro. Gravity is one effect, the flap a second,
+and a third keeps a stream of pipes coming; the bird dies on touching a pipe or on leaving the world
+through the top or the bottom. There is no score. It is a proof of concept and not a game anyone is
+trying to finish — see the [opening](#sabric--architecture).
+
+Between them those effects exercise `ApplyAcceleration`, `ApplyDeltaV` and the read side. The flap is
+spelled as a delta-v computed from the current velocity, precisely so that it *sets* an upward speed
+rather than stacking — which is the read half earning itself in an engine where nothing is ever
+stale.
+
+Two facts it established:
+
+- **SabbyBird's pipe stream depends on an effect adding and removing game objects.** That works under
+  Rectro, and is not something the design has agreed to — see
+  [What an effect is allowed to do to the space](#what-an-effect-is-allowed-to-do-to-the-space).
+- **Rectro's resting contact sits exactly on the overlap test's boundary.** Resolving to adjacency
+  means a zero gap, which is a natural way to get begin- and end-contact firing on alternate ticks
+  forever. It doesn't bite in SabbyBird, where contact is death and nothing rests, but it will in the
+  first Rectro game with a floor.
+
+---
+
+# Effects — settled design
+
+## The naming
+
+**Sabric's concept is an *effect*, not a controller.** `GameEffectBase`, `AetherEffectBase`,
+`AddEffect`. This pairs with events on the axis that actually distinguishes them: **an event is
+something that happens once, discretely; an effect is something ongoing, applying every tick.**
+
+It also frees *controller* to mean Aether's `Controller` and nothing else, which matters because all
+three kinds below traffic in Aether controllers. `GameController` was the first candidate and was
+dropped: a game controller is a gamepad to almost everyone, and the input abstraction is a live open
+question that will land in the same files.
+
+*Effect* collides mildly with visual effects; it agrees with *status effect*, which is the same
+concept. Judged worth it.
+
+## The context is the whole seam, in both directions
+
+`Update(long delta, IEffectContext context)`. Milliseconds, matching `GameSpaceBase.Advance`, rather
+than whatever unit the engine underneath steps in — and a parameter rather than something the context
+carries, so that it reads like `OnAdvance(long delta)`.
+
+The context answers reads with live state, and it is where pushes go:
+`context.ApplyAcceleration(obj, v)` rather than `obj.ApplyAcceleration(v)`. Two things that buys.
+`GameObjectBase` doesn't grow public methods that are only meaningful mid-tick, and "what is true
+right now" and "where does the push land" are one seam instead of two.
+
+The read side exists because an effect runs *inside* the engine's step, where
+[the sync sweep](#the-physics-sync-sweep) has not run yet — the object's own properties are still
+those of the last `SyncFromWorld` while the body has already moved. Harmless for something that only
+pushes; wrong for anything that steers.
+
+```
+IEffectContext          GetPosition / GetVelocity / GetRotation / GetAngularVelocity
+                        ApplyAcceleration / ApplyDeltaV
+                        ApplyAngularAcceleration / ApplyAngularDeltaV   (an engine may refuse these)
+  IAetherEffectContext  + ApplyForce / ApplyImpulse / ApplyTorque / ApplyAngularImpulse
+```
+
+Acceleration and delta-v are kinematics and belong to any engine; force and impulse presuppose mass
+and belong to the physics side. The Aether implementation multiplies by mass on the way through — or,
+for the angular pair, by rotational inertia, which is the same conversion in the other coordinate.
+
+**One context object, handed out typed differently.** `IAetherEffectContext` derives from
+`IEffectContext`, so a single instance serves both: kind 2 below sees the narrow interface and kind 3
+the wide one.
+
+### Ordering visibility is engine-defined, deliberately
+
+Whether an effect sees an earlier effect's push within the same tick is **not contractual**. Aether
+cannot do otherwise than make it visible — a delta-v is an impulse, which moves `Body.LinearVelocity`
+immediately — and Rectro's simplest workable implementation applies immediately too, so the two agree
+in practice today. Leaving it unstated is a choice not to tie the abstraction's hands to a behaviour
+nothing depends on. It can be made contractual later if something wants it.
+
+## Three ways into an Aether world
+
+Every effect in a space is a `GameEffectBase` and the space's list means one thing. The Aether layer
+knows three ways to get one running:
+
+1. **A wrapper around a native Aether controller** — `AetherControllerEffect(GravityController)`.
+   The space puts the underlying controller straight into the `World`. The wrapper's own `Update` is
+   never called, and throws `UnreachableException`.
+2. **An effect that has never heard of Aether.** The space puts a forwarding Aether `Controller` into
+   the world; that forwarder's `Update` hands the effect the space's context.
+3. **An `AetherEffectBase` subclass** — the analogue of `AetherObjectBase` and `AetherSpace`. Same
+   forwarding mechanism as kind 2, but handed an `IAetherEffectContext` rather than a plain one.
+
+**Nothing on the Sabric side inherits from Aether's `Controller`.** It is a class rather than an
+interface, so a Sabric base cannot derive from both it and `GameEffectBase`. That is why all three
+kinds wrap rather than inherit — kind 3 included, despite being the one that knows about Aether.
+
+**Kind 1 is an Aether-specific category**, and exists only because Aether ships pre-built controllers
+we didn't write. Rectro ships none, so every Rectro effect has a real `Update` — which is also why
+`Update` stays on the base rather than on an intermediate "updating effect" type. Rectro's space
+walks its effect list and calls them, having no foreign `World` to delegate to; splitting `Update`
+off the base would make the engine that needs it filter, to spare the engine that never calls it.
+
+### Kind 1's throwing `Update` is correct, not a hole
+
+The contract of `Update` is **the engine calls it; the game implements it**. Game code has no context
+object to pass, so it cannot call `Update` at all. When the thing in the world is a native Aether
+controller rather than a forwarder, nothing is ever going to call it. `UnreachableException` is an
+accurate statement of that — reaching it means the engine broke its own contract, which is what
+distinguishes it from `NotSupportedException` (a caller asked for something unsupported) and from
+`NotImplementedException` (a gap someone should come back and fill).
+
+This is not a Liskov problem: the only caller is the engine, and the engine knows by construction not
+to make that call.
+
+## Input is held, not inherited
+
+**A `PlayerInput` collects `IPlayerInputSource`s and reduces them to a clamped direction, and the
+space owns one.** An effect that reads it is handed it; a UI wires its sources to the space and never
+touches an effect at all.
+
+An `InputEffectBase` to derive from was built first and removed. Deriving tied input to being exactly
+one effect, and made that effect the only route anything had to the input — neither worth committing
+to while [the input abstraction itself](#input) is an open question. Pulling input *out* of the
+effect hierarchy is what leaves room to answer it.
+
+The two games' input effects consequently have nothing left worth sharing and are written
+independently. SabbyBird's flap edge-triggers on the direction and applies a delta-v; Sporbits'
+thrust applies a force, which is what makes it an `AetherEffectBase` rather than a plain one.
+
+## Mechanics worth not rediscovering
+
+- **The space installs, and remembers what it installed.** `AetherSpace` keeps a dictionary from
+  effect to the `Controller` that went into the world on its behalf. Kinds 2 and 3 get a forwarder
+  and kind 1 contributes its own controller; recording which is what makes removal the same operation
+  for all three. Choosing the branch is a type test in the space, because a kind 2 effect has no
+  Aether-side base to hang a virtual on — so the space needs that branch whatever else it has.
+- **One forwarder per effect, not one for the whole space**, so that effects and Aether's own
+  controllers keep the order they were added in.
+- **The forwarder uses the space's own `delta`**, not Aether's `float dt` in seconds converted back.
+  `AetherSpace.OnAdvance` passes `TimeSpan.FromMilliseconds(delta)` into `World.Step`, so it still
+  holds the exact value and there is no rounding question.
+- **`AetherEffectBase.Update` narrows by sealed overload and a cast**, because C# cannot narrow a
+  parameter in an override. What stops the wide one recursing into itself is overload resolution
+  picking the narrow one for an argument already typed as `IAetherEffectContext`; sealing it stops a
+  derived type getting in between and making that untrue. Same shape as `AetherObjectBase.Space`.
+- **`AetherSpace.AddController(Controller)`** stays, as a convenience over
+  `AddEffect(new AetherControllerEffect(controller))`. There is no `RemoveController` to match:
+  removal means holding the wrapper and calling `RemoveEffect`.
+
+---
+
 # Collision — settled design
 
-## Collision is a Sabric concept, unlike force
+## Collision is a Sabric concept; force still isn't
 
-The controller question turns on force being a poor candidate for abstraction: one implementation, no
-second candidate to check against, and an impulse has no authoritative copy to travel through the sync
-sweep. Collision is the opposite case on every count. **Every conceivable implementation has it** — the
-Mario/Flappy Bird motivation that justifies an abstract layer at all is a genre that is *entirely*
-collision — and "these two touched" is implementation-neutral as a shape in a way that "apply this
-impulse" is not. So `GameObjectBase` and `GameSpaceBase` learn about collision, and the Aether layer
-feeds it, the same seam the `[SyncWith]` sweep solved for position and velocity.
+**Every conceivable implementation has collision** — the Mario/Flappy Bird motivation that justifies
+an abstract layer at all is a genre that is *entirely* collision — and "these two touched" is
+implementation-neutral as a shape in a way that "apply this impulse" is not. So `GameObjectBase` and
+`GameSpaceBase` learn about collision, and the Aether layer feeds it, the same seam the `[SyncWith]`
+sweep solved for position and velocity.
+
+Force was long the contrasting case, and **it still is: force is an Aether-level concept and has not
+become a Sabric one.** What changed is that this stopped being an argument against abstracting the
+push at all, because the generic concept turned out not to be force. `IEffectContext` carries
+acceleration and delta-v — kinematics, meaningful in a game with no physics engine — and force and
+impulse stay on `IAetherEffectContext`, where mass exists to weigh them by.
+
+That is the same line this section is about to draw between `CollisionInfo` and
+`AetherCollisionInfo`, and the same one that puts `Rotation` on `GameObjectBase` and `Mass` on
+`AetherObjectBase`. Each seam is one concept with a cut through it separating what any engine can say
+from what a solver presupposes — and it took a second engine to know where each cut belonged rather
+than merely where it looked right.
 
 ## Handlers hang off the space
 
@@ -879,6 +1158,10 @@ speed is kinematic and mass-free; impulse is momentum actually exchanged, so a h
 outweighs a light one arriving fast. Measured, two equal unit circles closing at 10: approach speed
 10, normal impulse 15.71.
 
+**Rectro reports a plain `CollisionInfo` and adds no subclass of its own**, which is the line holding
+from the other side: everything the general record carries is something an engine with no solver can
+say, and Rectro has nothing to add beyond it.
+
 ## The Aether side
 
 **One subscription for the whole space, taken at construction.** `World.ContactManager` carries
@@ -903,7 +1186,8 @@ Measured in Aether.Physics2D 2.2.0, and the reason the design is shaped this way
 **`BeginContact` returning `bool` is a veto, and `AetherSpace` always returns `true`.** Deciding whether
 a contact happens at all is a physics concern that has to be answered mid-step on pre-solve state — the
 opposite of everything this design is for. A game that wants it reaches through to `Body.OnCollision` or
-the per-`Fixture` delegates, the same escape hatch that `Body.ApplyForce` is today. Static filtering
+the per-`Fixture` delegates — reaching past Sabric to Aether, which is always available to a game and
+is what `Body.ApplyForce` used to be before the effect context gave force a seam. Static filtering
 (collision categories, `Fixture.IsSensor`) covers most of what a veto would otherwise be used for and is
 plain body configuration.
 
@@ -1044,26 +1328,47 @@ forced rather than chosen: the space is the thing being populated, so once popul
 something has to be callable. Whether *everything* holding a space should be able to spawn into it is
 the actual question, and it is unanswered.
 
-## Controllers
-
-**Being designed now — see `Docs/WIP/effects-and-rectro.md`, which supersedes what was here.** The
-abstraction is an *effect* rather than a controller, and `Sabric.Engine.Rectro` is being built
-alongside it so the design is checked against an engine that isn't Aether. That doc folds back into
-this one once it's implemented.
-
-What exists in the meantime is `AetherSpace.AddController`/`RemoveController` taking Aether's own
-`Controller`, and game code writing `Planet.Body.ApplyForce` — reaching through Sabric to Aether.
-
 ## Rules, events, and what happens after the step
 
 The **event** half is settled: `DispatchEvents` is the post-sweep phase and collision is its first
-tenant — see [Collision](#collision--settled-design).
+tenant — see [Collision](#collision--settled-design). So is the **effect** half — see
+[Effects](#effects--settled-design).
 
-What is still open is whether a **rule** concept is wanted alongside it: a per-space thing with an
-update that runs every tick after the sweep, the mirror of a controller on the far side of the step.
+What is still open is whether a **rule** concept is wanted alongside them: a per-space thing with an
+update that runs every tick after the sweep, the mirror of an effect on the far side of the step.
 Events answer "something happened"; a rule would answer "check this every tick regardless" — a clock
 running down, a puck drifting out of bounds. Nothing has established that both are needed, and a rule
 may turn out to be an event source rather than a separate category.
+
+**Whether `Effect` simply absorbs it is the sharper form of the question.** *Effect* was defined on
+being ongoing rather than on which side of the step it runs, so nothing in the name rules out an
+effect that runs after the sweep — at which point whether *rule* survives as a category at all is
+unsettled. SabbyBird's out-of-bounds check is the one live instance of the need, and it is currently
+an `OnAdvance` override rather than either.
+
+## What an effect is allowed to do to the space
+
+**An effect can currently add and remove game objects while the space is mid-advance, and that should
+not stay allowed** — at least not directly. SabbyBird's pipe stream depends on it today.
+
+The reason to distrust it is that it only demonstrably works in the engine where there is nothing for
+it to disturb. A Rectro object *is* its own physics state, so spawning one costs nothing and the
+effect sweep finishes before anything moves. Aether is the paradigm that would get messy: an effect
+runs inside `World.Step`, where the world is mid-step, and reaching into it there is the opposite of
+what every other part of this design does.
+
+The likely direction, not a decision: **spawning and despawning become hooks on `IEffectContext`**,
+with the Aether implementation deferring them until `SyncFromWorld` — which preserves the general
+contract that `SyncFromWorld` is when everything an effect did inside the step lands back on the
+Sabric objects.
+
+Adding or removing *effects* mid-sweep has no answer either, and currently throws under Rectro's
+plain `foreach` over its effect list. Whether one mechanism covers both is part of the question.
+
+## A better name than `GameEffect`
+
+Nothing is wrong with it; it just hasn't been lived with yet. Recorded so that a better one is
+recognised if it turns up, not because a search is open.
 
 ## Input
 
@@ -1078,9 +1383,17 @@ present shape is the right abstraction, or just the one the port happened to car
 the question; so is whether "the player is trying to go this way" and "the pointer is here" are the
 same kind of thing.
 
-Related: `Sporbits.Engine.PlayerInputController` translates player intent into a force on the
-player's planet. Its placement is flagged as provisional in the source — it is arguably an input
-concern rather than an engine one.
+**One decision has been taken, and it was taken to keep this question open rather than to answer
+it.** `PlayerInput` — the thing that collects sources and reduces them — is an object a space holds
+and an effect is handed, not a base class an effect derives from. Inheritance would have committed
+the design to input being exactly one effect, reachable only through that effect; see
+[Effects](#effects--settled-design). Nothing about *what* the abstraction should be follows from
+that.
+
+Related: each game's input effect translates player intent into a push on the world —
+`Sporbits.Engine.PlayerThrustEffect` into a force on the player's planet. The placement is flagged as
+provisional in the source: it is arguably an input concern rather than an engine one, and
+`Sporbits.UI` is an empty project nobody has found a use for.
 
 ## Dependency injection
 
@@ -1130,6 +1443,10 @@ Two things established while building the Sporbits version that any general desi
   repo. `Sabric.Core` currently holds only `VectorExtensions`.
 - **It isn't clear what, if anything, belongs in a game's non-Blazor `UI` project.** Nothing in the
   Sporbits port obviously wants to live there.
+
+**SabbyBird is the experiment on the last two**, and is built with neither a `.Core` nor a plain
+`.UI`. It has wanted neither so far — but it is small enough that this is weak evidence, and the
+thing that would settle it is a game that grows.
 
 ## Scoped CSS doesn't reach child components
 

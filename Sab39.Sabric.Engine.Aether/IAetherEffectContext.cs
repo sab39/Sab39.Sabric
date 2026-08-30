@@ -28,4 +28,15 @@ public interface IAetherEffectContext : IEffectContext
     /// long this tick is.
     /// </summary>
     void ApplyImpulse(GameObjectBase obj, Vector2 impulse);
+
+    /// <summary>
+    /// Turns <paramref name="obj"/> with <paramref name="torque"/> for the length of this tick.
+    /// </summary>
+    void ApplyTorque(GameObjectBase obj, float torque);
+
+    /// <summary>
+    /// Changes <paramref name="obj"/>'s angular momentum by <paramref name="impulse"/> outright,
+    /// however long this tick is.
+    /// </summary>
+    void ApplyAngularImpulse(GameObjectBase obj, float impulse);
 }

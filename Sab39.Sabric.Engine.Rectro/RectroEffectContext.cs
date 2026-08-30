@@ -32,4 +32,18 @@ internal sealed class RectroEffectContext : IEffectContext
         => obj.Velocity += acceleration * Seconds;
 
     public void ApplyDeltaV(GameObjectBase obj, Vector2 deltaV) => obj.Velocity += deltaV;
+
+    /// <remarks>
+    /// Rectro's rectangles are axis-aligned - it is the first syllable of the name - so a turn has
+    /// nothing here to land on, and no version of this engine will have one. The reads still answer:
+    /// a Rectro object has a <see cref="GameObjectBase.Rotation"/> like any other game object, and
+    /// something may be drawing by it. What is refused is making one change.
+    /// </remarks>
+    public void ApplyAngularAcceleration(GameObjectBase obj, float acceleration) => throw DoesNotRotate();
+
+    /// <inheritdoc cref="ApplyAngularAcceleration"/>
+    public void ApplyAngularDeltaV(GameObjectBase obj, float deltaV) => throw DoesNotRotate();
+
+    private static NotSupportedException DoesNotRotate()
+        => new("Rectro is axis-aligned, and turns nothing.");
 }

@@ -22,31 +22,47 @@ namespace Sab39.Sabric.Engine.Aether;
 /// </remarks>
 internal sealed class AetherEffectContext : IAetherEffectContext
 {
-    public Vector2 GetPosition(GameObjectBase obj) => BodyOf(obj).Position.AsSystem();
-    public Vector2 GetVelocity(GameObjectBase obj) => BodyOf(obj).LinearVelocity.AsSystem();
+    public Vector2 GetPosition(GameObjectBase obj) => GetBody(obj).Position.AsSystem();
+    public Vector2 GetVelocity(GameObjectBase obj) => GetBody(obj).LinearVelocity.AsSystem();
 
-    public float GetRotation(GameObjectBase obj) => BodyOf(obj).Rotation;
-    public float GetAngularVelocity(GameObjectBase obj) => BodyOf(obj).AngularVelocity;
+    public float GetRotation(GameObjectBase obj) => GetBody(obj).Rotation;
+    public float GetAngularVelocity(GameObjectBase obj) => GetBody(obj).AngularVelocity;
 
     /// <remarks>
     /// Mass is what turns each of these into its physical twin, and the body is what holds the
     /// authoritative value mid-step.
     /// </remarks>
     public void ApplyAcceleration(GameObjectBase obj, Vector2 acceleration)
-        => ApplyForce(obj, acceleration * BodyOf(obj).Mass);
+        => ApplyForce(obj, acceleration * GetBody(obj).Mass);
 
     /// <inheritdoc cref="ApplyAcceleration"/>
     public void ApplyDeltaV(GameObjectBase obj, Vector2 deltaV)
-        => ApplyImpulse(obj, deltaV * BodyOf(obj).Mass);
+        => ApplyImpulse(obj, deltaV * GetBody(obj).Mass);
 
-    public void ApplyForce(GameObjectBase obj, Vector2 force) => BodyOf(obj).ApplyForce(force.AsAether());
+    public void ApplyForce(GameObjectBase obj, Vector2 force) => GetBody(obj).ApplyForce(force.AsAether());
 
     public void ApplyImpulse(GameObjectBase obj, Vector2 impulse)
-        => BodyOf(obj).ApplyLinearImpulse(impulse.AsAether());
+        => GetBody(obj).ApplyLinearImpulse(impulse.AsAether());
+
+    /// <remarks>
+    /// Rotational inertia is to the angular pair what mass is to the linear one, and the conversion
+    /// is the same shape.
+    /// </remarks>
+    public void ApplyAngularAcceleration(GameObjectBase obj, float acceleration)
+        => ApplyTorque(obj, acceleration * GetBody(obj).Inertia);
+
+    /// <inheritdoc cref="ApplyAngularAcceleration"/>
+    public void ApplyAngularDeltaV(GameObjectBase obj, float deltaV)
+        => ApplyAngularImpulse(obj, deltaV * GetBody(obj).Inertia);
+
+    public void ApplyTorque(GameObjectBase obj, float torque) => GetBody(obj).ApplyTorque(torque);
+
+    public void ApplyAngularImpulse(GameObjectBase obj, float impulse)
+        => GetBody(obj).ApplyAngularImpulse(impulse);
 
     /// <remarks>
     /// Cast rather than tested: everything in an <see cref="AetherSpace"/> is one of these by
     /// construction, which is the same argument that lets <see cref="AetherObjectBase.Space"/> cast.
     /// </remarks>
-    private static Body BodyOf(GameObjectBase obj) => ((AetherObjectBase)obj).Body;
+    private static Body GetBody(GameObjectBase obj) => ((AetherObjectBase)obj).Body;
 }

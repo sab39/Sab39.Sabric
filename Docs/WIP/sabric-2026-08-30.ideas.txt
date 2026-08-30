@@ -1,11 +1,11 @@
 Sabric
 
-- Rotation and AngularVelocity move up to GameObjectBase
-- Mass gets added to AetherObjectBase
-+ Controller unification
-  + Now called "effects" - designed in Docs/WIP/effects-and-rectro.md
-    * GameEffectBase, IEffectContext, InputEffectBase, and the Rectro side
-    - The Aether side
+* Rotation and AngularVelocity move up to GameObjectBase
+* Mass gets added to AetherObjectBase
+* Controller unification
+  * Now called "effects" - folded into Docs/architecture.md
+    * GameEffectBase, IEffectContext, PlayerInput, and the Rectro side
+    * The Aether side
 - Viewport concept in the UI layer
 - Decouple tick rate and frame rate?
 - Sabric.UI.Headless

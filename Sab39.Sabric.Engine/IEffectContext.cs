@@ -17,6 +17,12 @@ namespace Sab39.Sabric.Engine;
 /// Acceleration and delta-v and nothing else: both are kinematics and belong to any engine, where
 /// force and impulse presuppose mass. An engine with physics adds those on its own interface.
 ///
+/// The angular half is here on the same grounds and carries a licence to refuse: rotation belongs to
+/// any engine, but an engine may be built on a shape that cannot turn. Refusing is a
+/// <see cref="NotSupportedException"/> rather than a narrower interface with the angular half left
+/// off, because a seam that fragments by capability costs every effect a type test to find out what
+/// it is holding.
+///
 /// Whether an effect sees an earlier effect's push within the same tick is not contractual. See
 /// Docs/WIP/effects-and-rectro.md.
 /// </remarks>
@@ -26,9 +32,9 @@ public interface IEffectContext
     Vector2 GetVelocity(GameObjectBase obj);
 
     /// <remarks>
-    /// Read-only for now, where position and velocity have a push each. Rotation is a concept the
-    /// generic layer carries, so an effect that steers by it needs to be able to see it; nothing has
-    /// yet wanted the angular twin of <see cref="ApplyDeltaV"/>, so there isn't one.
+    /// Always answerable, where the angular pushes are not: an object has a rotation whatever is
+    /// running it, and something may well be drawing by it, even in an engine that will never turn
+    /// one itself.
     /// </remarks>
     float GetRotation(GameObjectBase obj);
 
@@ -52,4 +58,18 @@ public interface IEffectContext
     /// through this seam a push.
     /// </remarks>
     void ApplyDeltaV(GameObjectBase obj, Vector2 deltaV);
+
+    /// <summary>
+    /// Turns <paramref name="obj"/> at <paramref name="acceleration"/> radians per second squared,
+    /// for the length of this tick.
+    /// </summary>
+    /// <exception cref="NotSupportedException">This engine does not turn anything.</exception>
+    void ApplyAngularAcceleration(GameObjectBase obj, float acceleration);
+
+    /// <summary>
+    /// Changes <paramref name="obj"/>'s angular velocity by <paramref name="deltaV"/> outright,
+    /// however long this tick is.
+    /// </summary>
+    /// <exception cref="NotSupportedException">This engine does not turn anything.</exception>
+    void ApplyAngularDeltaV(GameObjectBase obj, float deltaV);
 }
