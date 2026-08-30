@@ -6,7 +6,9 @@ Sabric
   * Now called "effects" - folded into Docs/architecture.md
     * GameEffectBase, IEffectContext, PlayerInput, and the Rectro side
     * The Aether side
-- Viewport concept in the UI layer
++ Camera concept in the UI layer
+  - Design agreed in Docs/WIP/camera.md - Camera in Sabric.UI, CameraView and
+    ParallaxLayer in Sabric.UI.BlazorSVG
 - Decouple tick rate and frame rate?
 - Sabric.UI.Headless
 * Sabric.Engine.Rectro

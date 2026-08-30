@@ -1,0 +1,70 @@
+@using System.Numerics
+@inherits ChangeSubscribingViewBase<Camera>
+
+@* The whole of the camera in the DOM: one transform attribute on one group. The root svg's
+   viewBox stays static and says how big the window is; this says where it is pointed. *@
+<g transform="@transform">@ChildContent</g>
+
+@code {
+    [Parameter]
+    [EditorRequired]
+    public Camera Camera { get; set; } = default!;
+
+    /// <summary>
+    /// How much of the camera's movement this layer takes: 1 sits in the world, 0 sits on the
+    /// fixed stars, and anything between is a layer some distance away.
+    /// </summary>
+    /// <remarks>
+    /// Translation only. Rotation and zoom apply in full at every depth, and that is not a
+    /// simplification: an infinitely distant star does not slide past when the viewer moves, but it
+    /// does swing right around when the viewer rolls, and a lens magnifies it like anything else.
+    /// Scaling a distant layer's rotation by its parallax factor looks subtly wrong rather than
+    /// obviously broken, which is the kind of bug that survives.
+    /// </remarks>
+    [Parameter]
+    public float Parallax { get; set; } = 1;
+
+    /// <summary>
+    /// The period, in world units, at which this layer's content repeats in both axes. Zero for
+    /// content that doesn't.
+    /// </summary>
+    /// <remarks>
+    /// A parallax offset grows without bound as the camera travels, so a tiled backdrop of any
+    /// finite size eventually runs out from under the view. Wrapping the offset modulo the tile is
+    /// visually identical and bounded, which means the content only ever has to be big enough to
+    /// cover one tile beyond the view rather than the whole reachable world.
+    /// </remarks>
+    [Parameter]
+    public float Wrap { get; set; }
+
+    /// <remarks>
+    /// A view's markup is normally required to be a function of its source, and child content is
+    /// the exception that costs nothing: what's inside is components that invalidate themselves, so
+    /// this group not re-rendering never keeps them from doing so.
+    /// </remarks>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    protected override Camera? Source => Camera;
+
+    private Vector2 offset
+    {
+        get
+        {
+            var moved = Camera.Position * Parallax;
+            return Wrap > 0 ? new(moved.X % Wrap, moved.Y % Wrap) : moved;
+        }
+    }
+
+    /// <remarks>
+    /// Read right to left, as SVG applies it: bring the camera's position to the origin, turn the
+    /// world the opposite way to the camera, then scale. Getting that order or either sign wrong is
+    /// the classic time sink here.
+    ///
+    /// Invariant formatting because SVG attribute values are not localised, and Blazor WASM takes
+    /// its culture from the browser.
+    /// </remarks>
+    private string transform
+        => FormattableString.Invariant(
+            $"scale({Camera.Zoom}) rotate({float.RadiansToDegrees(-Camera.Rotation)}) translate({-offset.X} {-offset.Y})");
+}
