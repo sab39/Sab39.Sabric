@@ -633,10 +633,12 @@ subscription is released.
   detaches after the object leaves.** Both are announced, and **the list is only ever announced when
   the space agrees with it** — no subscriber can see an object that is listed but not live, or one
   torn down but still listed.
-- **Removal is asymmetric with adding and the asymmetry is invisible until tried.** Taking the body
-  out of the world is the object's own business, in `OnDetached`; a *space* also has to undo whatever
-  it did on add, and Aether's `GravityController` has no `RemoveBody` — only `Gravity.Bodies`, the
-  list `AddBody` appends to.
+- **Removal is asymmetric with adding, and the asymmetry is invisible until tried.** `OnAttached` is
+  what creates the body and `OnDetached` is what destroys it, so an override that registers the body
+  somewhere has to run *after* `base.OnAttached` and unregister *before* `base.OnDetached` — the two
+  halves sit either side of the base call, which reads like a mistake and isn't. What gets
+  unregistered may not be symmetric either: Aether's `GravityController` has no `RemoveBody`, only
+  `Gravity.Bodies`, the list `AddBody` appends to.
 
 **Future work, wanted but not now.** Two pieces of this are Blazor plumbing with nothing
 game-specific about them, and generalizing them sounds like fun:
@@ -652,9 +654,9 @@ game-specific about them, and generalizing them sounds like fun:
 
 # Session, Space and Level — settled design
 
-The split, the naming, and the attach model are built. The controller adapters and the DI chain are
-designed but not yet written — `Sporbits.Engine.PlayerInputController` still reaches past Sabric to
-`World.Add`, and `SporbitsUI` still constructs its own session.
+The split, the naming, and the attach model are built. The DI chain is designed but not yet written —
+`SporbitsUI` still constructs its own session. Controllers are deliberately *not* abstracted; see the
+open question.
 
 ## Three concepts, three lifetimes
 
@@ -746,29 +748,12 @@ and `Velocity` rather than reading through to the body, so a detached object alr
 state, and the sync sweep only ever walks the space's own list. What changes is that `Body` becomes
 nullable, created on attach rather than in a field initializer.
 
-**Controllers attach the same way** — `space.Add(controller)` alongside `space.Add(obj)`, same
-lifecycle. A controller learns its space from attachment rather than from a constructor parameter, so
-it too can be constructed inert and described by a level.
-
-## Controllers wrap Aether's, one adapter each
-
-**A force is not state, so it cannot travel through the sync sweep.** The sweep carries properties
-that have an authoritative copy on each side; an impulse has no authoritative copy — it is applied
-once and then gone. A Sabric controller running outside `World.Step` therefore has no way to express
-"push this" through the machinery everything else crosses the seam by.
-
-So a Sabric controller runs *inside* the step, wrapped in an Aether `Controller` that forwards to it.
-One adapter per controller rather than one adapter running them all: that is what puts each in the
-world's own controller list individually, so ordering against Aether's own controllers is expressible,
-and `Enabled` and world membership work per controller the way Aether intends.
-
-What the abstract layer grows for this is `ApplyForce`/`ApplyImpulse` as *methods* on the object, not
-synced properties — implementable by anything, including the no-physics-engine case the abstraction is
-aimed at. `Sabric.Engine` still never learns Aether exists; the adapter is the same trick as
-`[SyncWith]`.
-
-This settles controllers only. What runs *after* `SyncFromWorld`, reading settled state, is a
-different concept and is still open.
+**Controllers deliberately do not attach this way.** `AetherSpace.AddController` takes one of Aether's
+own `Controller`s and puts it straight in the world, kept separate from `Add` rather than folded into
+it: a controller has no position, is never rendered, and none of the inert-then-attach model applies
+to it. Sharing one list would buy a shorter call site at the cost of a list that means two things.
+That is the whole of Sabric's controller story — a holding pattern rather than a design, and the
+reason it is one is an open question.
 
 ## DI supplies the lifetimes
 
@@ -902,12 +887,42 @@ forced rather than chosen: the space is the thing being populated, so once popul
 something has to be callable. Whether *everything* holding a space should be able to spawn into it is
 the actual question, and it is unanswered.
 
+## Controllers
+
+**Controllers have no Sabric abstraction, and the attempt to give them one is what makes this an open
+question rather than an omission.** What exists is `AetherSpace.AddController`/`RemoveController`
+taking Aether's own `Controller` — enough that populating a space reads the same for both kinds of
+thing in it, and nothing more. Game code writes `Planet.Body.ApplyForce`, reaching through Sabric to
+Aether, and that is the visible cost.
+
+The obstacle is that **a force is not state, so it cannot travel through the sync sweep.** The sweep
+carries properties with an authoritative copy on each side; an impulse has no authoritative copy — it
+is applied once and then gone. So a Sabric controller running *after* the step has no way to say
+"push this" through the machinery everything else crosses the seam by, which forces it to run inside
+`World.Step`, wrapped one-for-one in Aether controllers that forward to it.
+
+That much works. What it drags in is the problem: the abstract layer has to grow `ApplyForce` and
+`ApplyImpulse` as methods on the game object, which commits `Sabric.Engine` to force being a universal
+concept — for the benefit of a physics-agnostic layer that has exactly one implementation and no
+second candidate to check the abstraction against. A wrapper that only exists to let a game push
+something is a lot of ceremony for `Body.ApplyForce`.
+
+There is also a question the adapter shape would have to answer and hasn't: a controller running
+inside the step sees object properties as of the *last* `SyncFromWorld`, while the body has already
+moved. Harmless for something that only pushes; not harmless for something that steers.
+
+Constraints on any future attempt:
+
+- Aether's `Controller` is a class, not an interface, so a Sabric-side base cannot derive from both it
+  and a Sabric base — an abstraction has to wrap rather than inherit.
+- An attempt at a Sabric-side `InputControllerBase` came out as a verbatim copy of the Aether one with
+  no users, and was deleted.
+
 ## Rules, events, and what happens after the step
 
-Controllers are settled: they run inside `World.Step`, wrapped one-for-one in Aether controllers.
-What is *not* settled is the other category — the thing that runs after `SyncFromWorld` and reads
-settled post-step state. Sporbits already has one without naming it: the crash test after
-`base.OnTick`.
+Separately from controllers, which run inside `World.Step`, there is the category that runs *after*
+`SyncFromWorld` and reads settled post-step state. Sporbits already has one without naming it: the
+crash test after `base.OnAdvance`.
 
 Two ideas raised, neither chosen:
 
@@ -924,10 +939,6 @@ Constraints that survive whichever way it goes:
 
 - Anything reading settled state has to run after `SyncFromWorld`, while Aether's own hooks fire from
   inside `World.Step`. Something has to bridge those two moments.
-- Aether's `Controller` is a class, not an interface, so a Sabric-side base cannot derive from both it
-  and a Sabric base — which is why the settled design wraps rather than inherits.
-- An attempt at a Sabric-side `InputControllerBase` came out as a verbatim copy of the Aether one with
-  no users, and was deleted.
 
 ## Input
 

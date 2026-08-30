@@ -23,11 +23,16 @@ public abstract class GameObjectBase : IPropertyChange, IChangeNotifier
     private GameSpaceBase? space;
 
     /// <remarks>
-    /// Null until a space attaches this object, and null again once one detaches it. Narrowed by
-    /// covariant override rather than by a second field, so a derived type sees its own space type
-    /// without paying for the storage.
+    /// Typed non-null although it genuinely is null before a space attaches this object and again
+    /// after one detaches it. The window is short and no ordinary use of an object falls inside it,
+    /// so declaring the exception would tax every call site to describe a state none of them are in.
+    /// Nullable reference types are advisory, so code with a real reason to doubt can still ask -
+    /// <see cref="IsAttached"/> is that question, and it reads the field rather than this.
+    ///
+    /// Narrowed by covariant override rather than by a second field, so a derived type sees its own
+    /// space type without paying for the storage.
     /// </remarks>
-    public virtual GameSpaceBase? Space => this.space;
+    public virtual GameSpaceBase Space => this.space!;
 
     public bool IsAttached => this.space is not null;
 

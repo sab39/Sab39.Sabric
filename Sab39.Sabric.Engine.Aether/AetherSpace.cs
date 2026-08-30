@@ -1,3 +1,4 @@
+using nkast.Aether.Physics2D.Controllers;
 using nkast.Aether.Physics2D.Dynamics;
 
 namespace Sab39.Sabric.Engine.Aether;
@@ -20,6 +21,23 @@ public abstract class AetherSpace(GameSessionBase session) : GameSpaceBase<Aethe
         Gravity = default,
         Enabled = true,
     };
+
+    /// <summary>
+    /// Adds a controller to the world, to run inside every step.
+    /// </summary>
+    /// <remarks>
+    /// Aether's own <see cref="Controller"/>, deliberately, and separate from
+    /// <see cref="GameSpaceBase{TObject}.Add"/> rather than folded into it: a controller is not a
+    /// game object, has no position and is never rendered, and conflating the two would buy a
+    /// shorter call site at the cost of a list that means two things.
+    ///
+    /// This is the whole of Sabric's controller story. It exists so that populating a space reads
+    /// the same way for both kinds of thing in it, not because the abstraction has been designed -
+    /// see the open questions in Docs/architecture.md.
+    /// </remarks>
+    public void AddController(Controller controller) => World.Add(controller);
+
+    public void RemoveController(Controller controller) => World.Remove(controller);
 
     /// <remarks>
     /// Guarded on IsAttached rather than trusting the list. Everything in it is attached by

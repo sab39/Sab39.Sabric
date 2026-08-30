@@ -22,7 +22,7 @@ public abstract partial class AetherObjectBase : GameObjectBase
 {
     // Cast rather than a second backing field: the cast is provably safe from the space that
     // attached it, and costs nothing a JIT can't fold.
-    public override AetherSpace? Space => (AetherSpace?)base.Space;
+    public override AetherSpace Space => (AetherSpace)base.Space;
 
     public BodyType BodyType { get; init; } = BodyType.Dynamic;
 
