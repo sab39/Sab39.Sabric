@@ -11,6 +11,7 @@
   </Folder>
   <Project Path="Sab39.Sabric.CodeGen/Sab39.Sabric.CodeGen.csproj" />
   <Project Path="Sab39.Sabric.Core/Sab39.Sabric.Core.csproj" />
+  <Project Path="Sab39.Sabric.Engine.Rectro/Sab39.Sabric.Engine.Rectro.csproj" />
   <Project Path="Sab39.Sabric.Engine/Sab39.Sabric.Engine.csproj" />
   <Project Path="Sab39.Sabric.Engine.Aether/Sab39.Sabric.Engine.Aether.csproj" />
   <Project Path="Sab39.Sabric.UI/Sab39.Sabric.UI.csproj" />
