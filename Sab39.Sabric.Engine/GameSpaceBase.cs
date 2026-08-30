@@ -15,6 +15,44 @@ public abstract class GameSpaceBase(GameSessionBase session)
 
     public abstract IReadOnlyNotifyingList<GameObjectBase> GameObjects { get; }
 
+    private readonly List<GameEffectBase> effects = [];
+
+    /// <summary>
+    /// Everything ongoing in this space, whatever engine ends up running it.
+    /// </summary>
+    /// <remarks>
+    /// A plain list where <see cref="GameObjects"/> is a notifying one: an effect is never rendered,
+    /// so there is nothing for a view to subscribe to.
+    ///
+    /// One list for every kind of effect, deliberately. An engine may have more than one way to get
+    /// an effect running - Aether wraps its own native controllers - and this list still means the
+    /// one thing. See Docs/WIP/effects-and-rectro.md.
+    /// </remarks>
+    public IReadOnlyList<GameEffectBase> Effects => this.effects;
+
+    /// <remarks>
+    /// Attach, then the hook, then the list, as <see cref="GameSpaceBase{TObject}.Add"/> does: the
+    /// hook is where an engine installs the effect into whatever actually runs it, and it has to be
+    /// able to reach what attaching built.
+    /// </remarks>
+    public void AddEffect(GameEffectBase effect)
+    {
+        effect.Attach(this);
+        OnAddEffect(effect);
+        this.effects.Add(effect);
+    }
+    protected virtual void OnAddEffect(GameEffectBase effect) { }
+
+    public bool RemoveEffect(GameEffectBase effect)
+    {
+        if (!this.effects.Remove(effect)) return false;
+
+        OnRemoveEffect(effect);
+        effect.Detach();
+        return true;
+    }
+    protected virtual void OnRemoveEffect(GameEffectBase effect) { }
+
     protected virtual void OnAdvance(long delta) { }
 
     /// <remarks>

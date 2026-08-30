@@ -1,0 +1,32 @@
+using System.Numerics;
+
+namespace Sab39.Sabric.Engine.Rectro;
+
+/// <summary>
+/// The effect seam for a Rectro space: reads that are the object's own state, and pushes that land
+/// on its velocity there and then.
+/// </summary>
+/// <remarks>
+/// The read side is a straight pass-through, because a Rectro object *is* its own physics state -
+/// there is no second copy to be out of date. That is the whole reason the interface has one: an
+/// engine that keeps its state elsewhere needs the indirection, and this one is what it costs when
+/// nothing does.
+///
+/// One instance, reused every advance with <see cref="Seconds"/> replaced, rather than an allocation
+/// a tick.
+/// </remarks>
+internal sealed class RectroEffectContext : IEffectContext
+{
+    /// <summary>
+    /// How long the advance currently being run is, in seconds.
+    /// </summary>
+    public float Seconds { get; set; }
+
+    public Vector2 GetPosition(GameObjectBase obj) => obj.Position;
+    public Vector2 GetVelocity(GameObjectBase obj) => obj.Velocity;
+
+    public void ApplyAcceleration(GameObjectBase obj, Vector2 acceleration)
+        => obj.Velocity += acceleration * Seconds;
+
+    public void ApplyDeltaV(GameObjectBase obj, Vector2 deltaV) => obj.Velocity += deltaV;
+}

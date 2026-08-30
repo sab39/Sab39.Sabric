@@ -16,11 +16,26 @@ public abstract class RectroSpace(GameSessionBase session) : GameSpaceBase<Rectr
 {
     protected override void OnAdvance(long delta)
     {
-        // Effects run here, before anything moves. Nothing implements them yet - see
-        // Docs/WIP/effects-and-rectro.md.
-
+        Apply(delta);
         Move(delta);
         Collide();
+    }
+
+    private readonly RectroEffectContext context = new();
+
+    /// <summary>
+    /// Runs every effect in the space, before anything has moved.
+    /// </summary>
+    /// <remarks>
+    /// The whole of Rectro's effect machinery: there is no foreign world to hand them to, so the
+    /// space walks its own list. Pushes land on velocities immediately, so an effect does see what
+    /// an earlier one did - true of Aether as well, and not contractual in either.
+    /// </remarks>
+    private void Apply(long delta)
+    {
+        this.context.Seconds = delta / 1000f;
+
+        foreach (var effect in Effects) effect.Update(delta, this.context);
     }
 
     /// <remarks>

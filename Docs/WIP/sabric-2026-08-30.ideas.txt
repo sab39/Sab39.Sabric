@@ -11,8 +11,8 @@ Sabric
   - Test case for the Engine vs Aether seam by making a purely X/Y rectangle-based engine
   + New Sab39.SabbyBird repo
     - Super simple test case for the Rectro engine
-    + Like Sporbits but minimal:
+    * Like Sporbits but minimal:
       * Sab39.SabbyBird.Engine
-      - Sab39.SabbyBird.UI.BlazorSVG
-      - Sab39.SabbyBird.UI.BlazorSVG.Client
-      - Sab39.SabbyBird.UI.BlazorSVG.Web
+      * Sab39.SabbyBird.UI.BlazorSVG
+      * Sab39.SabbyBird.UI.BlazorSVG.Client
+      * Sab39.SabbyBird.UI.BlazorSVG.Web
