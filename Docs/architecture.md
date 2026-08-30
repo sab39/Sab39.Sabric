@@ -717,11 +717,17 @@ Session.Tick(stamp)
   ├─ bookkeeping: Delta, Ticks
   ├─ OnTick
   │    └─ CurrentSpace.Advance(Delta)
-  │         ├─ SyncToWorld
-  │         ├─ World.Step        ← controllers run in here, Aether's and ours alike
-  │         └─ SyncFromWorld
+  │         ├─ OnAdvance
+  │         │    ├─ SyncToWorld
+  │         │    ├─ World.Step   ← controllers run in here, Aether's and ours alike;
+  │         │    │                 collision hooks fire in here and queue
+  │         │    └─ SyncFromWorld
+  │         └─ DispatchEvents    ← the queue drains here, on settled state
   └─ Ticked
 ```
+
+A game's own `OnAdvance` override runs *inside* `OnAdvance`, so before `DispatchEvents` — anything
+wanting settled post-step state handles an event rather than overriding `OnAdvance`.
 
 Space transitions happen *between* ticks, in the session's reaction to a space finishing — never from
 inside `Advance`. That is what keeps a space being torn down from ever being observable mid-sweep.
@@ -804,6 +810,109 @@ whole of teardown.
 
 Sessions stay owned by the shell for now. Nothing is pressing on that, and the argument above is
 about spaces.
+
+---
+
+# Collision — settled design
+
+## Collision is a Sabric concept, unlike force
+
+The controller question turns on force being a poor candidate for abstraction: one implementation, no
+second candidate to check against, and an impulse has no authoritative copy to travel through the sync
+sweep. Collision is the opposite case on every count. **Every conceivable implementation has it** — the
+Mario/Flappy Bird motivation that justifies an abstract layer at all is a genre that is *entirely*
+collision — and "these two touched" is implementation-neutral as a shape in a way that "apply this
+impulse" is not. So `GameObjectBase` and `GameSpaceBase` learn about collision, and the Aether layer
+feeds it, the same seam the `[SyncWith]` sweep solved for position and velocity.
+
+## Handlers hang off the space
+
+**The space is where a collision is handled; the game object is not.** The rules that want collisions
+are pairwise — the puck hits *the player's planet*, the puck enters *a goal* — and a pair is a fact
+about the space, not about either half of it. An object-level handler would make every such rule pick
+one of the two objects to live on arbitrarily.
+
+**An object-level API is wanted as well, and is deliberately not built yet.** "Something hit *me*" is
+the more obvious thing to reach for and will want to exist; the space is the level that has to work
+first, because it is where the dispatch happens either way.
+
+## Edges only
+
+`BeginContact` and `EndContact`, no "still touching". Continuous contact is available from Aether's
+`PostSolve`, and nothing wants it; making the general abstraction edge-triggered is the commitment.
+
+## `Advance` grows a dispatch phase
+
+**`GameSpaceBase.Advance` is `OnAdvance(delta); DispatchEvents();`** — the same non-virtual public
+entry with a protected hook as everywhere else, so a derived space cannot put itself on the wrong side
+of the dispatch.
+
+**Named `DispatchEvents`, not `DispatchCollisions`.** Collisions are the first tenant of the after-step
+moment, not the only conceivable one, and the phase is the general thing: post-`SyncFromWorld`, on
+settled state, with the physics no longer mid-step. This is half of what
+[Rules, events, and what happens after the step](#rules-events-and-what-happens-after-the-step) was
+asking; what remains open there is whether a *rule* concept is wanted alongside events.
+
+## Nothing physics-owned crosses the step boundary
+
+**Every value is copied out at hook time.** The queue holds Sabric's own records, never Aether's
+`Contact`. Reading the impulse off the retained `Contact` at drain time was measured to work — the
+solver writes impulses back into the same manifold — and is not done: Aether pools contacts, so a
+contact that begins and ends inside one step could be recycled before the drain, and the failure would
+be a silently wrong value rather than a throw.
+
+The cost is that the impulse arrives from a second hook. `BeginContact` fires in the collide phase,
+**before the solver**, so the manifold impulse is zero there; `PostSolve` fires later in the same step
+with the solved value. So `BeginContact` queues the record and `PostSolve` fills its impulse in,
+matched on `Contact` reference identity within the step.
+
+## Two levels of collision information
+
+```
+CollisionInfo         the two objects, contact point, normal, approach speed
+  AetherCollisionInfo + normal and tangent impulse, both manifold points, friction, restitution
+```
+
+The line between them is **what a physics implementation must be able to produce**, not what Aether
+happens to have. Point, normal and approach speed are available to anything that detects a collision
+at all — approach speed is relative velocity along the normal, which needs no solver. **Impulse
+presupposes one**, so it cannot be promised by the abstract layer: an engine that resolves overlaps
+without exchanging momentum has no impulse to report.
+
+Both measure "how hard", and they are different quantities rather than two spellings of one. Approach
+speed is kinematic and mass-free; impulse is momentum actually exchanged, so a heavy body drifting in
+outweighs a light one arriving fast. Measured, two equal unit circles closing at 10: approach speed
+10, normal impulse 15.71.
+
+## The Aether side
+
+**One subscription for the whole space, taken at construction.** `World.ContactManager` carries
+world-level hooks, so there is no per-object hookup in `OnAttached`/`OnDetached` and nothing to unwind
+on detach. Body-to-object identity is the space's own business — `Body.Tag` or a dictionary — and never
+leaves the Aether layer.
+
+Measured in Aether.Physics2D 2.2.0, and the reason the design is shaped this way:
+
+- The hooks are **public fields on `ContactManager`, not events**: `BeginContact`, `EndContact`,
+  `PreSolve`, `PostSolve`, `ContactFilter`. Assignment, not subscription — one owner, and `AetherSpace`
+  is it.
+- `bool BeginContactDelegate(Contact)`, `void EndContactDelegate(Contact)`,
+  `void PreSolveDelegate(Contact, ref Manifold)`,
+  `void PostSolveDelegate(Contact, ContactVelocityConstraint)`.
+- `Contact.GetWorldManifold(out Vector2 normal, out FixedArray2<Vector2> points)` gives world-space
+  contact points — one for two circles, up to two in general. The general `CollisionInfo` carries a
+  single representative point; `AetherCollisionInfo` carries both.
+- Solved impulses land in `Contact.Manifold.Points[i].NormalImpulse`, equal to what `PostSolve`
+  reports.
+
+**`BeginContact` returning `bool` is a veto, and `AetherSpace` always returns `true`.** Deciding whether
+a contact happens at all is a physics concern that has to be answered mid-step on pre-solve state — the
+opposite of everything this design is for. A game that wants it reaches through to `Body.OnCollision` or
+the per-`Fixture` delegates, the same escape hatch that `Body.ApplyForce` is today. Static filtering
+(collision categories, `Fixture.IsSensor`) covers most of what a veto would otherwise be used for and is
+plain body configuration.
+
+Probes for all of the above are at `C:\Code\scratch\AetherContactProbe`.
 
 ---
 
@@ -973,25 +1082,14 @@ Constraints on any future attempt:
 
 ## Rules, events, and what happens after the step
 
-Separately from controllers, which run inside `World.Step`, there is the category that runs *after*
-`SyncFromWorld` and reads settled post-step state. Sporbits already has one without naming it: the
-crash test after `base.OnAdvance`.
+The **event** half is settled: `DispatchEvents` is the post-sweep phase and collision is its first
+tenant — see [Collision](#collision--settled-design).
 
-Two ideas raised, neither chosen:
-
-- A **rule** concept — a per-space thing with an update that runs after the sweep, the mirror of a
-  controller on the far side of the step.
-- An **event** concept — not a per-tick thing at all, but handlers responding to something that
-  happened. Collision is the obvious case: Aether's hooks fire from inside `World.Step`, so one shape
-  this could take is the step *queueing* something that the space drains after `SyncFromWorld`.
-
-The two aren't exclusive, and it isn't established that both are needed or that either is. This is the
-same question as [Collision](#collision) approached from the other side.
-
-Constraints that survive whichever way it goes:
-
-- Anything reading settled state has to run after `SyncFromWorld`, while Aether's own hooks fire from
-  inside `World.Step`. Something has to bridge those two moments.
+What is still open is whether a **rule** concept is wanted alongside it: a per-space thing with an
+update that runs every tick after the sweep, the mirror of a controller on the far side of the step.
+Events answer "something happened"; a rule would answer "check this every tick regardless" — a clock
+running down, a puck drifting out of bounds. Nothing has established that both are needed, and a rule
+may turn out to be an event source rather than a separate category.
 
 ## Input
 
@@ -1027,28 +1125,6 @@ describes.
 One lifetime fact already recorded, because it constrains the answer: `AddGameObjectViewResolver`
 registers a singleton holding the root provider, which is right while the app is one WASM client and
 won't be once anything renders per-circuit.
-
-## Collision
-
-**How a collision reaches game code is undesigned.** `GameObjectBase` has no notion of collision at
-all. Sporbits detects its one collision — puck into player's planet — with a distance test after
-`base.OnTick`, which is expedience rather than a design: it holds up only because nothing in Sporbits
-is bouncy, so two objects that touch stay touching.
-
-Collision events are what's wanted. Whatever `GameObjectBase` grows has to be something
-`AetherObjectBase` can feed without the abstract layer learning that Aether exists — the same
-seam the `[SyncWith]` sweep solved for position and velocity. It is bound up with
-[Rules, events, and what happens after the step](#rules-events-and-what-happens-after-the-step):
-a collision is the clearest case of something that happens inside the step and has to be handled
-outside it.
-
-Measured, so it doesn't need re-deriving: in Aether.Physics2D 2.2.0 the collision hooks are **events
-on `Body`** (`OnCollision`, `OnSeparation`) and **public delegate fields on `Fixture`**
-(`BeforeCollision`, `OnCollision`, `AfterCollision`, `OnSeparation`). `OnCollisionEventHandler` is
-`bool (Fixture sender, Fixture other, Contact contact)` — the return value decides whether the
-collision is processed, so the hook is a veto as well as a notification. Both `Body` and `Fixture`
-carry an `object Tag` for hanging the game object off. All of it fires from inside `World.Step`,
-which the sweep-ordering rules above already have things to say about.
 
 ## Session lifecycle: how a space finishes
 

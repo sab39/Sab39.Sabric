@@ -53,9 +53,15 @@ public abstract partial class AetherObjectBase : GameObjectBase
     [SyncWith(nameof(Body))]
     public partial float AngularVelocity { get; set; }
 
+    /// <remarks>
+    /// The Tag is how <see cref="AetherSpace"/> gets from a body back to the object that owns it,
+    /// which is what lets collisions be reported for the whole world in one hookup rather than
+    /// per object. It goes no further than that layer.
+    /// </remarks>
     protected override void OnAttached()
     {
         this.body = World.CreateBody(Position.AsAether(), Rotation, BodyType);
+        this.body.Tag = this;
         InitializeBody();
     }
 

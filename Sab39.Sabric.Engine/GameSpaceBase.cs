@@ -16,7 +16,64 @@ public abstract class GameSpaceBase(GameSessionBase session)
     public abstract IReadOnlyNotifyingList<GameObjectBase> GameObjects { get; }
 
     protected virtual void OnAdvance(long delta) { }
-    public void Advance(long delta) => OnAdvance(delta);
+
+    /// <remarks>
+    /// Non-virtual, with the dispatch after the hook, so a derived space cannot put itself on the
+    /// wrong side of it: an override of <see cref="OnAdvance"/> runs while the physics is still
+    /// mid-advance, and anything wanting settled state handles an event instead.
+    /// </remarks>
+    public void Advance(long delta)
+    {
+        OnAdvance(delta);
+        DispatchEvents();
+    }
+
+    private readonly Queue<PendingEvent> pendingEvents = [];
+
+    private readonly record struct PendingEvent(CollisionInfo Collision, bool IsSeparation);
+
+    /// <summary>
+    /// Records a contact to be raised once the advance is over.
+    /// </summary>
+    /// <remarks>
+    /// Queued rather than raised, because a physics implementation learns about a contact from
+    /// inside its own step, where the objects' own state is still that of the previous advance and
+    /// the world may be locked against the spawning and despawning a handler will want to do.
+    /// </remarks>
+    protected void QueueCollision(CollisionInfo collision)
+        => this.pendingEvents.Enqueue(new(collision, IsSeparation: false));
+
+    protected void QueueSeparation(CollisionInfo collision)
+        => this.pendingEvents.Enqueue(new(collision, IsSeparation: true));
+
+    /// <remarks>
+    /// Named for events rather than for collisions: this is the general after-advance moment -
+    /// settled state, physics no longer mid-step - and collisions are its first tenant rather than
+    /// its only conceivable one.
+    ///
+    /// Drained rather than snapshotted, so anything a handler queues is delivered in the same
+    /// advance. Nothing but the physics queues today, and the physics is not running here.
+    /// </remarks>
+    private void DispatchEvents()
+    {
+        while (this.pendingEvents.TryDequeue(out var pending))
+        {
+            if (pending.IsSeparation) OnSeparation(pending.Collision); else OnCollision(pending.Collision);
+        }
+    }
+
+    /// <summary>
+    /// Called once per advance for each contact that began during it, on settled state.
+    /// </summary>
+    /// <remarks>
+    /// On the space rather than on the objects, because the rules that want collisions are pairwise
+    /// and a pair is a fact about the space - an object-level handler would make every such rule
+    /// pick one of the two arbitrarily. An object-level API is wanted as well and is not built yet;
+    /// see Docs/architecture.md.
+    /// </remarks>
+    protected virtual void OnCollision(CollisionInfo collision) { }
+
+    protected virtual void OnSeparation(CollisionInfo collision) { }
 }
 
 public abstract class GameSpaceBase<TObject>(GameSessionBase session) : GameSpaceBase(session)
