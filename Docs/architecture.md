@@ -10,21 +10,16 @@ second consumer is coming. Rather than maintain a pretence of ignorance, this do
 freely when a concrete example makes something clearer, and says which side of the line each piece
 belongs on. The *code* keeps the split strictly; the prose doesn't have to.
 
-## How to read this, and how to maintain it
+## How to read this
 
 Sections marked **settled** were worked through deliberately and shouldn't be relitigated without a
 concrete reason — and if a reason turns up, it belongs in the doc. Everything under
-[Open design questions](#open-design-questions) is genuinely open: the code that touches those areas
-is carried over and refactored just far enough to work, not chosen.
+[Open design questions](#open-design-questions) is genuinely open.
 
-**Silence means unsettled, not settled.** Code that *looks* like a considered design decision but
-isn't mentioned here almost certainly isn't one. Don't defend it on the grounds that it's what the
-code does.
-
-When maintaining this doc: record decisions and the reasoning behind them, things measured rather
-than assumed, and constraints that came from outside the code. Don't record transient state, file
-listings, or verification status. **When recording an open item, state the problem, not a guessed
-solution** — a future reader can re-derive a fix, but not the constraint that made it a problem.
+> **Maintaining this doc.** Record decisions and measured facts — not transient status, not verification
+> status, not history. It's re-read by every future agent before any work starts, so everything here
+> has to earn that: "we considered X and rejected it" only does when it stops *every* future reader
+> asking again.
 
 ---
 
@@ -912,7 +907,7 @@ the per-`Fixture` delegates, the same escape hatch that `Body.ApplyForce` is tod
 (collision categories, `Fixture.IsSensor`) covers most of what a veto would otherwise be used for and is
 plain body configuration.
 
-Probes for all of the above are at `C:\Code\scratch\AetherContactProbe`.
+All of the above is established by the `AetherContactProbe` scratch project, which is kept.
 
 ---
 
@@ -986,7 +981,7 @@ Recorded so they don't get re-explored from scratch:
 
 ## Measured MS.DI behaviour
 
-Two probes at `C:\Code\scratch` establish these empirically against .NET 10.0.11, with stubbed types
+Two scratch probes establish these empirically against .NET 10.0.11, with stubbed types
 mirroring the design. Re-run them rather than re-deriving anything about MS.DI by argument.
 
 **Resolution** (`DiSeamProbe`, 16 checks). The settled design registers only closed types, so almost
@@ -1025,8 +1020,8 @@ fallbacks before specifics" (hence `Last`), which a `MostDerivedOrDefault()` ext
 # Open design questions
 
 These are the parts of the seam between Sabric, its Aether implementation, and the game on top that
-have **not** been designed. The code in these areas is carried over from the previous implementation
-and refactored just far enough to work; it is not evidence of a decision.
+have **not** been designed. Whatever the code in these areas currently does is not evidence of a
+decision.
 
 Each item states the problem and whatever has been established as fact around it. It deliberately
 does not propose a solution.
@@ -1068,6 +1063,22 @@ That much works. What it drags in is the problem: the abstract layer has to grow
 concept — for the benefit of a physics-agnostic layer that has exactly one implementation and no
 second candidate to check the abstraction against. A wrapper that only exists to let a game push
 something is a lot of ceremony for `Body.ApplyForce`.
+
+**Partial answer: express the push as acceleration, not force.** Force and impulse are physics
+concepts and belong on the Aether side; *acceleration* and *delta-v* are kinematics, and a layer that
+already carries position and velocity is entitled to them. So the abstract layer grows
+`ApplyAcceleration`/`ApplyDeltaV` rather than `ApplyForce`/`ApplyImpulse`, and the implementation
+multiplies by mass on the way through. Mass is knowable at the moment of application and objects
+rarely change it, so the conversion is local and unambiguous. This removes the objection that force
+was being made a universal Sabric concept for the benefit of one implementation, and reopens generic
+Sabric controllers that need no Aether-level knowledge.
+
+**Mass stays entirely on the Aether side — it is not a Sabric property.** The test is Flappy Bird or
+Mario: acceleration and delta-v are meaningful in a game with no physics engine at all, and mass is
+not. Anything a Sabric controller wants to say, it says in those terms; a controller that needs to
+size its push by mass is by definition doing physics and belongs in the Aether layer.
+
+Still open: the staleness question below.
 
 There is also a question the adapter shape would have to answer and hasn't: a controller running
 inside the step sees object properties as of the *last* `SyncFromWorld`, while the body has already

@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Local-only files, not for the published repo
+*.local.*
+
 # User-specific files
 *.rsuser
 *.suo
