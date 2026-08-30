@@ -9,15 +9,14 @@ This is a working doc for the controller-unification work and the Rectro / Sabby
 concept. It replaces the **Controllers** open question in `Docs/architecture.md`, and gets folded
 into that doc once it's implemented.
 
-## Why the second engine comes first
+**The shared layer and the Rectro half are built; the Aether half is not.** Everything below about
+`GameEffectBase`, `IEffectContext`, Rectro and SabbyBird describes code. The three kinds of effect,
+the Aether context, and everything under Open are still design.
 
-The strongest recorded argument against giving controllers a Sabric abstraction is that it commits
-`Sabric.Engine` to concepts "for the benefit of a physics-agnostic layer that has exactly one
-implementation and no second candidate to check the abstraction against."
-
-**Rectro is that second candidate, so it is built first.** Designing the effect abstraction against
-Aether alone and then writing Rectro to fit would leave that objection intact. Instead Rectro and
-SabbyBird get stood up against a minimal effect API, and their needs finish the design.
+`Sabric.Engine` carries these concepts on the strength of two implementations to check them against
+rather than one. The recorded objection to a physics-agnostic layer is that it has "no second
+candidate to check the abstraction against", and **Rectro is that second candidate** — which is what
+Rectro is for.
 
 ---
 
@@ -103,6 +102,21 @@ immediately — and Rectro's simplest workable implementation applies immediatel
 in practice today. Leaving it unstated is a choice not to tie the abstraction's hands to a behaviour
 nothing yet depends on. It can be made contractual later if something wants it.
 
+## What the shared layer is
+
+- **`Update(long delta, IEffectContext context)`.** Milliseconds, matching `GameSpaceBase.Advance`,
+  rather than whatever unit the engine underneath steps in. Delta is a parameter rather than
+  something the context carries, so that it reads like `OnAdvance(long delta)`.
+- **The effect list is on the non-generic `GameSpaceBase`**, and is a plain `List` where
+  `GameObjects` is a `NotifyingList`: an effect is never rendered, so there is nothing for a view to
+  subscribe to.
+- **`AddEffect` / `RemoveEffect` mirror `Add` / `Remove`** — attach, hook, list on the way in; list,
+  hook, detach on the way out — and `GameEffectBase` has the same `Space` / `IsAttached` /
+  `OnAttached` / `OnDetached` lifecycle a game object has. That hook is what an engine which has to
+  install an effect somewhere has to work with.
+- **`InputEffectBase`** is the engine-agnostic twin of `AetherInputControllerBase`, which stays put
+  for as long as anything is still built on Aether's own controllers.
+
 ## Where effects sit in the tick
 
 **Abstractly: during the tick, before events.** Anything finer is engine-dependent — Aether's
@@ -154,9 +168,15 @@ Sab39.SabbyBird.UI.BlazorSVG.Web.Client
 Deliberately **no `.Core` and no plain `.UI`** — whether those layers pull their weight is an open
 question in `architecture.md`, and SabbyBird is a chance to find out by going without them.
 
-**First milestone: the bird falls and flaps.** Constant downward acceleration as one effect, a flap
-as a delta-v from input, and nothing else — no pipes, no collision. That is the smallest thing that
-exercises `ApplyAcceleration` and `ApplyDeltaV`, which is the part of the design being validated.
+**It is playable.** Gravity is one effect, the flap a second, and a third keeps a stream of pipes
+coming; the bird dies on touching a pipe or on leaving the world through the top or the bottom.
+Between them those exercise `ApplyAcceleration`, `ApplyDeltaV` and the read side — the flap is
+spelled as a delta-v computed from the current velocity precisely so that it sets an upward speed
+rather than stacking, which is the read half earning itself in an engine where nothing is ever
+stale. There is no score yet.
+
+`DiagnosticsView` is an on-screen readout of where the pipe gaps are coming from, and is the one
+thing in the tree that re-renders per tick.
 
 ---
 
@@ -164,10 +184,13 @@ exercises `ApplyAcceleration` and `ApplyDeltaV`, which is the part of the design
 
 Not decisions — traps and mechanical consequences worth not rediscovering.
 
-- **`Update` takes `long` milliseconds**, matching `GameSpaceBase.Advance` rather than Aether's
-  `float dt` in seconds. The Aether forwarder should use the space's own `delta` rather than
-  converting Aether's `dt` back: `AetherSpace.OnAdvance` passes `TimeSpan.FromMilliseconds(delta)`
-  into `World.Step`, so it still holds the exact value and there is no rounding question.
+- **The Aether forwarder should use the space's own `delta`** rather than converting Aether's
+  `float dt` in seconds back to milliseconds. `AetherSpace.OnAdvance` passes
+  `TimeSpan.FromMilliseconds(delta)` into `World.Step`, so it still holds the exact value and there
+  is no rounding question.
+- **An effect that adds or removes *effects* during the sweep has no answer.** Rectro walks
+  `Effects` with a plain `foreach`, so doing it throws. Adding and removing game *objects* mid-sweep
+  is fine, and SabbyBird's pipes depend on it.
 - **Setting `Mass` has an ordering trap with fixtures.** Aether recomputes a body's mass from its
   fixtures in `ResetMassData()`, called on `CreateFixture` — Box2D behaviour inherited by the port,
   worth confirming against 2.2.0 before relying on it. If so, `PlanetBase` must set mass *after*

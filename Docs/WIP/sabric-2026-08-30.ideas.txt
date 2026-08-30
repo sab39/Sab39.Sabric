@@ -4,13 +4,15 @@ Sabric
 - Mass gets added to AetherObjectBase
 + Controller unification
   + Now called "effects" - designed in Docs/WIP/effects-and-rectro.md
+    * GameEffectBase, IEffectContext, InputEffectBase, and the Rectro side
+    - The Aether side
 - Viewport concept in the UI layer
 - Decouple tick rate and frame rate?
 - Sabric.UI.Headless
-+ Sabric.Engine.Rectro
-  - Test case for the Engine vs Aether seam by making a purely X/Y rectangle-based engine
-  + New Sab39.SabbyBird repo
-    - Super simple test case for the Rectro engine
+* Sabric.Engine.Rectro
+  * Test case for the Engine vs Aether seam by making a purely X/Y rectangle-based engine
+  * New Sab39.SabbyBird repo
+    * Super simple test case for the Rectro engine - playable
     * Like Sporbits but minimal:
       * Sab39.SabbyBird.Engine
       * Sab39.SabbyBird.UI.BlazorSVG
