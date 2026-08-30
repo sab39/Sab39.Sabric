@@ -724,9 +724,10 @@ in it while keeping the score, so those cannot be one object. Once a session out
 transition is building a new space and dropping the old one — and there is still no `Reset()`
 anywhere, which is the property the current Blazor-component-lifetime trick gets by accident.
 
-**A level is data, separate from the space that runs it.** A level that *is* the code populating a
-space forecloses level files, a level editor, procedural generation, and "the same level but harder".
-What a Level type actually looks like is open.
+**A level being data, separate from the space that runs it, is the aspiration** — not a decision about
+what gets built. A level that *is* the code populating a space forecloses level files, a level editor,
+procedural generation, and "the same level but harder", which is what moving towards data buys. How
+close it actually gets is undecided, and so is what a Level type looks like.
 
 `Game` is the *definition* only. Nothing persists past a session. A player's ongoing relationship with
 a game — high scores, unlocked levels, career — is a different thing with a different lifetime, and
@@ -1314,8 +1315,9 @@ does not propose a solution.
 
 The lifecycle is settled; what fills a space is not.
 
-**What a Level type is has not been designed.** It is data rather than code, and it describes the
-objects and controllers a space starts with. Beyond that, nothing.
+**What a Level type is has not been designed.** It describes the objects and controllers a space
+starts with; data rather than code is the aspiration rather than a settled requirement, and how far
+towards it any given step goes is part of the question. Beyond that, nothing.
 
 **Who constructs the objects a level describes is a real fork.** Either the level constructs them
 directly, or it names what it wants and a factory resolved from the space's scope builds them. The
@@ -1327,6 +1329,11 @@ looks like.
 forced rather than chosen: the space is the thing being populated, so once population is external
 something has to be callable. Whether *everything* holding a space should be able to spawn into it is
 the actual question, and it is unanswered.
+
+Sporbits has a game-side `ISporbitsLevel` — a `Name` and a `Populate(SporbitsSpace)` — which is a
+level that *is* code, at the opposite end from the aspiration above. It was built to get levels
+working and to find out what they need; it is evidence about the problem, not a proposal for the
+answer.
 
 ## Rules, events, and what happens after the step
 
@@ -1343,8 +1350,13 @@ may turn out to be an event source rather than a separate category.
 **Whether `Effect` simply absorbs it is the sharper form of the question.** *Effect* was defined on
 being ongoing rather than on which side of the step it runs, so nothing in the name rules out an
 effect that runs after the sweep — at which point whether *rule* survives as a category at all is
-unsettled. SabbyBird's out-of-bounds check is the one live instance of the need, and it is currently
-an `OnAdvance` override rather than either.
+unsettled. SabbyBird's out-of-bounds check is one live instance of the need, and it is currently an
+`OnAdvance` override rather than either.
+
+The second instance is Sporbits' own `ISporbitsRule` — `Update(delta, space)`, run from
+`SporbitsSpace.OnAdvance` after `base`, which its asteroid stream needs because it spawns. It is
+game-side and nothing about it commits Sabric to anything; it is here because two instances are worth
+more to whoever answers this than one was.
 
 ## What an effect is allowed to do to the space
 
@@ -1364,6 +1376,9 @@ Sabric objects.
 
 Adding or removing *effects* mid-sweep has no answer either, and currently throws under Rectro's
 plain `foreach` over its effect list. Whether one mechanism covers both is part of the question.
+
+**Sporbits' spawner is deliberately not an effect**, for exactly this reason — see the rule concept in
+the section above. That is a game working around the question rather than an answer to it.
 
 ## A better name than `GameEffect`
 
