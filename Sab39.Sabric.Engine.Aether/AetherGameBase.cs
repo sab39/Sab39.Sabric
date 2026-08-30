@@ -8,7 +8,7 @@ namespace Sab39.Sabric.Engine.Aether;
 /// <remarks>
 /// The World is handed out directly, so anything above this layer is free to use Aether's own
 /// concepts - controllers especially, which Sabric has no abstraction for. See the open
-/// questions in Docs/WIP/sporbits-revival.md in the Sporbits repo.
+/// questions in Docs/architecture.md.
 /// </remarks>
 public abstract class AetherGameBase : GameBase<AetherGameObjectBase>
 {
