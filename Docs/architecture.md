@@ -755,44 +755,55 @@ to it. Sharing one list would buy a shorter call site at the cost of a list that
 That is the whole of Sabric's controller story — a holding pattern rather than a design, and the
 reason it is one is an open question.
 
-## DI supplies the lifetimes
+## DI stays flat: one container, the host's
 
-The container supplies the three lifetimes: **app → session → space**. Disposal is teardown, so
-nothing needs a reset path at any level — the same property `SporbitsShell` gets today from Blazor
-component lifetime, moved somewhere the UI layer doesn't have to own.
+**Everything registers in the host's own provider, and session and space lifetimes are plain object
+lifetimes.** A session and a space are constructed, held and dropped by whatever owns them; neither is
+a container concept. There is nothing to forward, nothing to dispose in a particular order, and no
+second provider. In Sporbits the host is the WASM client's `WebAssemblyHostBuilder` root — the game
+renders under `InteractiveWebAssemblyRenderMode(prerender: false)`, so that is the only provider game
+code ever sees.
 
-**The session is a provider, not a scope, because MS.DI scopes are flat.** A scope created from
-inside another scope is its sibling, not its child, and disposing the outer one does not take the
-inner one down (measured; see [Measured MS.DI behaviour](#measured-msdi-behaviour)). So the chain is:
+What this gives up is constructor injection of session-level services into space-level types. Those
+get passed instead, which costs little: a space already holds its `Session`.
 
-```
-app       the root ServiceProvider
-session   a child ServiceProvider, built per session
-space     a real CreateScope() on the session's provider
-```
+A designed app → session → space chain was worked out and measured before being put aside, as was
+replacing the container outright with one that has hierarchical scopes — see
+[Roads not taken](#roads-not-taken) for both, and for what was measured about them.
 
-Only the bottom link is a scope, and that link is the one that has to be cheap and repeated — a
-level transition is a scope. Sessions are rare enough that building a provider for each is
-affordable. This shape was measured to do what the design wants: sibling spaces get distinct
-space-scoped services, they share their session, and disposing a space leaves the session up.
+## The render tree reflects lifetimes; it does not drive them
 
-**Anything from the app level must be forwarded into the session provider as an instance, never as
-a factory.** Registrations do not inherit across providers, so forwarding is explicit either way —
-but a provider disposes what its factories produced, so `AddSingleton(_ => root.GetRequiredService<T>())`
-makes the session's teardown dispose the app's singleton. `AddSingleton(instance)` does not. Same
-intent, opposite outcome, and nothing catches it at compile time. Two things close that off rather
-than leaving it to discipline:
+Settled, begrudgingly. **A session owns its spaces and tears them down. The UI follows.** A level
+transition is something the game decides, so the session builds the next space and drops the previous
+one; a view keyed on the current space is disposed and rebuilt as a consequence.
 
-- **Forwarding goes through a single helper** that resolves the instance and registers it *as* an
-  instance, so the rule lives at the one call site that legitimately knows about both providers.
-  Same reasoning as `AddGameObjectView` holding the object/view type check at the one call site that
-  knows about both halves.
-- **Nothing at the app level is `IDisposable`.** `Game` is the definition of a game — its levels and
-  its registrations — and holds nothing that needs releasing. With no disposable there, the trap
-  cannot be sprung whichever way something is forwarded, and the helper is belt to that braces.
+The other direction is genuinely tempting and is what Sporbits does today for sessions: a game exists
+because `SporbitsUI` is in the render tree, and stops existing when it leaves. No teardown code, no
+reset path, and Blazor's renderer is a well-tested manager of tree-shaped lifetimes. Extending that
+downwards — a space exists because a component renders it — costs almost nothing and reads well.
 
-The chain also gives a circuit a link of its own, which is what the view resolver's lifetime will
-need once anything renders per-circuit.
+It is given up because **a level transition is a game event, not a UI event.** If rendering is what
+makes a space exist, a session cannot move to the next level on its own: something on screen has to
+cause it, and a session with no screen — a test, a replay, a headless simulation — cannot transition
+at all. That is too much to trade for the lines it saves.
+
+Two mechanical facts that any version of this has to respect:
+
+- **DI cannot own these lifetimes, whichever direction they run.** MS.DI disposes a transient with
+  the scope that created it, and in WASM that scope is the app root. So a disposable resolved into a
+  component is held until the tab closes; removing the component disposes the *component*, not what
+  it was given. Component `IDisposable` is the mechanism, and the container is not involved.
+- **Blazor reuses a component when only a parameter changes.** `<SpaceView Space="..." />` at the
+  same position in the markup is the same instance with a new value, not a new instance — so a space
+  view needs `@key` on the space to be torn down and rebuilt on a transition. Without it the old view
+  quietly rebinds, carrying whatever per-space state it had. It fails in the direction of appearing
+  to work.
+
+Neither bites yet: nothing in the engine is `IDisposable`, so dropping the reference is currently the
+whole of teardown.
+
+Sessions stay owned by the shell for now. Nothing is pressing on that, and the argument above is
+about spaces.
 
 ---
 
@@ -800,6 +811,48 @@ need once anything renders per-circuit.
 
 Recorded so they don't get re-explored from scratch:
 
+- **A DI chain of app → session → space works, and still isn't worth it.** MS.DI scopes are flat, so
+  nesting has to be built rather than asked for: a child `ServiceProvider` per session, with a real
+  `CreateScope()` per space beneath it. That was measured to do exactly what the design wanted —
+  sibling spaces get distinct space-scoped services, they share their session, and tearing a space
+  down leaves the session up. Three costs sank it. **Registrations don't inherit across providers**,
+  so every host service game code wants must be named in a forwarding list, and a missing one fails
+  at runtime. **Forwarding has a silent trap**: a provider disposes what its factories produced, so
+  `AddSingleton(_ => root.GetRequiredService<T>())` makes the session's teardown dispose the *app's*
+  singleton, while `AddSingleton(instance)` does not — same intent, opposite outcome, nothing catches
+  it at compile time. And **`@inject` resolves from Blazor's provider regardless**, so a component
+  could never have injected session-level state anyway; the container's reach stops at the engine
+  boundary either way. Blazor's own scope is also not a session: in WASM `Scoped` and `Singleton` are
+  the same thing, one scope for the whole app, while sessions come and go inside one app load.
+- **Replacing the container with one that has hierarchical scopes doesn't rescue the chain either.**
+  `WebAssemblyHostBuilder.ConfigureContainer` does let a third-party container *be* Blazor's rather
+  than sit alongside it, so this was worth measuring rather than assuming. Measured on net10.0 with
+  Autofac.Extensions.DependencyInjection 11.0.2, DryIoc.Microsoft.DependencyInjection 6.2.0 and
+  Pure.DI 2.5.3:
+  - **Autofac and DryIoc really do give the whole chain — through their own APIs.** Registrations
+    inherit into nested scopes, a session-scoped service resolved from two sibling space scopes is
+    one instance, sibling spaces get distinct space-scoped instances, and tearing a space down leaves
+    the session and its sibling standing. Everything MS.DI cannot do.
+  - **But their MS.DI adapter surface is flat, identically to MS.DI.** `IServiceScopeFactory` is
+    reference-identical at every level and `CreateScope()` from inside a scope yields a sibling. An
+    adapter reproduces MS.DI's semantics, which is the point of one. So nesting is reachable only via
+    `BeginLifetimeScope`/`OpenScope` — meaning Sabric's engine would name a specific container's API
+    to express its own lifetimes. That is the cost that actually sinks it.
+  - **None of the three cascade disposal.** Disposing a parent scope leaves an open child's instances
+    undisposed in all of them. Autofac at least poisons the child, so using it afterwards throws
+    `ObjectDisposedException`; DryIoc leaves the orphan fully working. Every scope has to be disposed
+    explicitly whatever the container, so that discipline is not something a container buys off.
+  - **Pure.DI tops out at two levels.** A child composition inherits the parent's singletons but not
+    its scoped instances, and there is no named or tagged scope lifetime, so a middle tier cannot be
+    expressed at all — sibling spaces each got their own "session".
+  - **A compile-time container can't be the framework's container regardless.** Blazor registers its
+    own services at runtime with `Type` objects and factory delegates; a source generator needs the
+    graph while it compiles. That rules out the reflection-free options — Jab, Pure.DI, StrongInject
+    — for the "share it with Blazor" case, whatever their scoping.
+
+  The capability is real. The price is a container-specific API in the framework layer, a dependency,
+  worse trimming, and the manual disposal discipline surviving anyway — for something nothing
+  currently needs.
 - **Open generic DI registration cannot replace the visitor.** It solves what the container can
   *construct*, not how you *name* what you want. Asking for `IItemView<PlayerPlanet>` from a variable
   statically typed `GameObjectBase` still requires `MakeGenericType`. The two are orthogonal; open
@@ -959,12 +1012,17 @@ concern rather than an engine one.
 
 ## Dependency injection
 
-The app → session → space chain and the mechanism for it are settled. What isn't:
+That there is one container and it is the host's is settled. What isn't:
 
 **What registers what.** What Sabric registers on the host's behalf versus what a game registers, and
 what the composition root is expected to say, is undesigned. Everything outside the view seam
-constructs its collaborators directly — `SporbitsUI` does `new SporbitsGame()` as a field
+constructs its collaborators directly — `SporbitsUI` does `new SporbitsSession()` as a field
 initializer, and the keyboard input source is wired up by hand in `OnInitialized`.
+
+**How much there is to register is itself unclear, and the flat decision shrank it.** Nothing in the
+engine currently has a constructor dependency, so registering a session buys only the removal of that
+`new`. The question gets real once levels arrive and something has to construct the objects a level
+describes.
 
 One lifetime fact already recorded, because it constrains the answer: `AddGameObjectViewResolver`
 registers a singleton holding the root provider, which is right while the app is one WASM client and
