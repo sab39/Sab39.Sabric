@@ -1046,50 +1046,13 @@ the actual question, and it is unanswered.
 
 ## Controllers
 
-**Controllers have no Sabric abstraction, and the attempt to give them one is what makes this an open
-question rather than an omission.** What exists is `AetherSpace.AddController`/`RemoveController`
-taking Aether's own `Controller` — enough that populating a space reads the same for both kinds of
-thing in it, and nothing more. Game code writes `Planet.Body.ApplyForce`, reaching through Sabric to
-Aether, and that is the visible cost.
+**Being designed now — see `Docs/WIP/effects-and-rectro.md`, which supersedes what was here.** The
+abstraction is an *effect* rather than a controller, and `Sabric.Engine.Rectro` is being built
+alongside it so the design is checked against an engine that isn't Aether. That doc folds back into
+this one once it's implemented.
 
-The obstacle is that **a force is not state, so it cannot travel through the sync sweep.** The sweep
-carries properties with an authoritative copy on each side; an impulse has no authoritative copy — it
-is applied once and then gone. So a Sabric controller running *after* the step has no way to say
-"push this" through the machinery everything else crosses the seam by, which forces it to run inside
-`World.Step`, wrapped one-for-one in Aether controllers that forward to it.
-
-That much works. What it drags in is the problem: the abstract layer has to grow `ApplyForce` and
-`ApplyImpulse` as methods on the game object, which commits `Sabric.Engine` to force being a universal
-concept — for the benefit of a physics-agnostic layer that has exactly one implementation and no
-second candidate to check the abstraction against. A wrapper that only exists to let a game push
-something is a lot of ceremony for `Body.ApplyForce`.
-
-**Partial answer: express the push as acceleration, not force.** Force and impulse are physics
-concepts and belong on the Aether side; *acceleration* and *delta-v* are kinematics, and a layer that
-already carries position and velocity is entitled to them. So the abstract layer grows
-`ApplyAcceleration`/`ApplyDeltaV` rather than `ApplyForce`/`ApplyImpulse`, and the implementation
-multiplies by mass on the way through. Mass is knowable at the moment of application and objects
-rarely change it, so the conversion is local and unambiguous. This removes the objection that force
-was being made a universal Sabric concept for the benefit of one implementation, and reopens generic
-Sabric controllers that need no Aether-level knowledge.
-
-**Mass stays entirely on the Aether side — it is not a Sabric property.** The test is Flappy Bird or
-Mario: acceleration and delta-v are meaningful in a game with no physics engine at all, and mass is
-not. Anything a Sabric controller wants to say, it says in those terms; a controller that needs to
-size its push by mass is by definition doing physics and belongs in the Aether layer.
-
-Still open: the staleness question below.
-
-There is also a question the adapter shape would have to answer and hasn't: a controller running
-inside the step sees object properties as of the *last* `SyncFromWorld`, while the body has already
-moved. Harmless for something that only pushes; not harmless for something that steers.
-
-Constraints on any future attempt:
-
-- Aether's `Controller` is a class, not an interface, so a Sabric-side base cannot derive from both it
-  and a Sabric base — an abstraction has to wrap rather than inherit.
-- An attempt at a Sabric-side `InputControllerBase` came out as a verbatim copy of the Aether one with
-  no users, and was deleted.
+What exists in the meantime is `AetherSpace.AddController`/`RemoveController` taking Aether's own
+`Controller`, and game code writing `Planet.Body.ApplyForce` — reaching through Sabric to Aether.
 
 ## Rules, events, and what happens after the step
 
