@@ -1,0 +1,25 @@
+Sabric
+
+- Generalize the view selection system to account for alt views
+  - Initial use = sporbits minimap
+  - Could also be used for eg "powered up" views in mario
+- Verify - or fix - the view source generator not handling subclasses
+- Figure out whether Rules are a thing
+  - If so, move Sporbits' into Sabric
+  - Alternate approach:
+    - Add/remove methods on EffectContext which queue til after Tick
+    - Generalized Events system like we use for collisions
+      - Effects can trigger an event
+      - Events all fire after tick
+      - Instead of rules, we add subscribers to the events
+      - Not necessarily either/or with rules, both might be useful
+- Decouple tick rate and frame rate?
+- Sabric.UI.Headless?
+  - Or at least sketch out a standard shape for file-based-app runners
+- Unit Tests
+* Rotation and AngularVelocity move up to GameObjectBase
+* Mass gets added to AetherObjectBase
+* Effects
+* Camera concept in the UI layer
+* Sabric.Engine.Rectro
+  * SabbyBird as a proof of concept
